@@ -2,34 +2,61 @@ import streamlit as st
 import json
 import os
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+from PIL import Image, ImageOps  # Thư viện xử lý và nén ảnh chụp từ điện thoại
 
 # --- CẤU HÌNH HỆ THỐNG ---
 FILE_SAVE = "dulieu_vi_cloud.json"
+THU_MUC_ANH = "anh_giao_dich"
 
 # DÁN ĐOẠN URL WEB APP GOOGLE APPS SCRIPT CỦA BẠN VÀO ĐÂY:
-URL_CAU_NOI = "https://script.google.com/macros/s/AKfycbx3dXuQdWHLEH_BTogMnF6O-H0x-w4QHHakUgZevcQYT2DyDS8jHhzanZnaCDWf3IwWeg/exec"
+URL_CAU_NOI = "https://script.google.com/macros/s/AKfycbx3dXuQdWLEH_BTogMnF6O-H0x-w4QHHakUgZevcQYT2DyDS8jHhzanZnaCDWf3IwWeg/exec"
 
 st.set_page_config(page_title="Quản Lý Chi Tiêu Đa Nền Tảng", page_icon="💰", layout="wide")
 
-# --- HÀM 1: ĐỒNG BỘ DỮ LIỆU LÊN GOOGLE SHEETS ---
+if not os.path.exists(THU_MUC_ANH):
+    os.makedirs(THU_MUC_ANH)
+
+# Cấu hình cứng múi giờ Việt Nam (UTC+7) không phụ thuộc vào giờ của Server Cloud
+MUI_GIO_VN = timezone(timedelta(hours=7))
+
+# --- HÀM XỬ LÝ VÀ TỐI ƯU ẢNH CHỤP ĐIỆN THOẠI ---
+def xu_ly_va_luu_anh(file_anh, loai_gd):
+    if file_anh is None:
+        return ""
+    try:
+        img = Image.open(file_anh)
+        img = ImageOps.exif_transpose(img)  # Sửa lỗi ảnh bị ngược/xoay nghiêng do cảm biến điện thoại
+        img.thumbnail((1200, 1200))         # Giảm độ phân giải để app chạy mượt, tránh lag dung lượng lớn
+        
+        thoi_gian_chuoi = datetime.now(MUI_GIO_VN).strftime("%Y%m%d_%H%M%S")
+        ten_file = f"{loai_gd}_{thoi_gian_chuoi}.jpg"
+        duong_dan = os.path.join(THU_MUC_ANH, ten_file)
+        
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+        img.save(duong_dan, "JPEG", quality=80)  # Nén chất lượng hóa đơn xuống 80% để tiết kiệm bộ nhớ
+        return duong_dan
+    except Exception as e:
+        st.error(f"⚠️ Lỗi xử lý ảnh chụp: {e}")
+        return ""
+
+# --- HÀM ĐỒNG BỘ DỮ LIỆU LÊN GOOGLE SHEETS ---
 def luu_du_lieu():
-    # Bước 1: Lưu cục bộ làm bản backup dự phòng ngay lập tức
+    # 1. Lưu cục bộ làm bản backup dự phòng ngay lập tức
     with open(FILE_SAVE, "w", encoding="utf-8") as f:
         json.dump(st.session_state.data, f, ensure_ascii=False, indent=4)
         
-    # Bước 2: Chuẩn hóa dữ liệu sang dạng bảng phẳng để đẩy lên Google Sheets
+    # 2. Chuẩn hóa dữ liệu sang dạng bảng phẳng để đẩy lên Google Sheets
     try:
         vi_tien = st.session_state.data["vi_tien"]
         lich_su = st.session_state.data["lich_su"]
         
-        # Tạo bảng phẳng cho Tab vi_tien
         vi_tien_rows = [["Ví Lớn", "Ví Nhỏ", "Số Dư"]]
         for vt, cvn in vi_tien.items():
             for vn, sd in cvn.items():
                 vi_tien_rows.append([vt, vn, sd])
                 
-        # Tạo bảng phẳng cho Tab lich_su
         lich_su_rows = [["Thời Gian", "Loại", "Ví Lớn", "Ví Nhỏ", "Số Tiền", "Mô Tả", "Ảnh"]]
         for x in lich_su:
             lich_su_rows.append([
@@ -42,34 +69,25 @@ def luu_du_lieu():
                 x.get("anh", "")
             ])
             
-        # Thực hiện gọi API POST đẩy dữ liệu lên Google Script
         res1 = requests.post(URL_CAU_NOI, json={"action": "update_all", "sheetName": "vi_tien", "rows": vi_tien_rows}, timeout=10)
         res2 = requests.post(URL_CAU_NOI, json={"action": "update_all", "sheetName": "lich_su", "rows": lich_su_rows}, timeout=10)
         
-        # Kiểm tra phản hồi thực tế từ máy chủ Google
         if res1.status_code != 200 or res2.status_code != 200:
-            st.error(f"⚠️ Google Sheets phản hồi lỗi HTTP {res1.status_code}. Dữ liệu hiện tại đang được lưu tạm cục bộ trên thiết bị.")
-            return False
-        elif "html" in res1.text.lower() or "script error" in res1.text.lower():
-            st.error("⚠️ Lỗi cấu hình Apps Script! Vui lòng kiểm tra quyền truy cập 'Anyone' trên Web App.")
+            st.error(f"⚠️ Google Sheets phản hồi lỗi HTTP. Dữ liệu hiện tại đang được bảo toàn cục bộ.")
             return False
         return True
     except Exception as e:
-        st.warning(f"⚠️ Chưa thể kết nối tới Google Sheets ({e}). Ứng dụng đang chuyển sang chế độ lưu trữ cục bộ an toàn.")
+        st.warning(f"⚠️ Chưa thể đồng bộ tới Google Sheets ({e}). Đang chạy chế độ offline.")
         return False
 
-# --- HÀM 2: TẢI DỮ LIỆU TỪ GOOGLE SHEETS HOẶC FILE CỤC BỘ ---
+# --- HÀM TẢI DỮ LIỆU TỪ GOOGLE SHEETS ---
 def tai_du_lieu():
-    # Tạo cấu trúc dữ liệu mặc định ban đầu nếu chưa có gì
     mac_dinh = {
         "vi_tien": {
-            "Ví Cá Nhân": {"Tiền Mặt": 0, "Thẻ Ngân Hàng": 0},
-            "Ví Gia Đình": {"Quỹ Chung": 0}
+            "Ví Cá Nhân": {"Tiền Mặt": 0, "Thẻ Ngân Hàng": 0}
         },
         "lich_su": []
     }
-    
-    # Ưu tiên tải dữ liệu từ Google Sheets về trước
     try:
         res = requests.get(URL_CAU_NOI, timeout=8)
         if res.status_code == 200 and "html" not in res.text.lower():
@@ -77,7 +95,6 @@ def tai_du_lieu():
             new_vi_tien = {}
             new_lich_su = []
             
-            # Phân tích dữ liệu từ tab vi_tien
             if "vi_tien" in sheets_data and len(sheets_data["vi_tien"]) > 1:
                 for row in sheets_data["vi_tien"][1:]:
                     if len(row) >= 3:
@@ -85,7 +102,6 @@ def tai_du_lieu():
                         if vl not in new_vi_tien: new_vi_tien[vl] = {}
                         new_vi_tien[vl][vn] = float(sd) if sd != "" else 0.0
             
-            # Phân tích dữ liệu từ tab lich_su
             if "lich_su" in sheets_data and len(sheets_data["lich_su"]) > 1:
                 for row in sheets_data["lich_su"][1:]:
                     if len(row) >= 6:
@@ -101,7 +117,6 @@ def tai_du_lieu():
     except Exception:
         pass
         
-    # Nếu tải từ Google lỗi, lấy dữ liệu backup từ file cục bộ thiết bị
     if os.path.exists(FILE_SAVE):
         try:
             with open(FILE_SAVE, "r", encoding="utf-8") as f:
@@ -113,16 +128,15 @@ def tai_du_lieu():
         st.session_state.data = mac_dinh
     return False
 
-# --- KHỞI TẠO DỮ LIỆU KHI CHẠY APP ---
 if "data" not in st.session_state:
     tai_du_lieu()
 
-# --- GIAO DIỆN ĐIỀU HƯỚNG ---
-st.title("💰 Hệ Thống Quản Lý Chi Tiêu Đa Nền Tảng")
-menu = st.sidebar.radio("Chức năng hệ thống", ["Ghi nhận khoản chi", "Thêm ví & Nạp tiền", "Lịch sử giao dịch", "Cấu hình Hệ thống"])
-
 vi_tien = st.session_state.data["vi_tien"]
 lich_su = st.session_state.data["lich_su"]
+
+# --- GIAO DIỆN ĐIỀU HƯỚNG SIDEBAR ---
+st.title("💰 Hệ Thống Quản Lý Chi Tiêu Đa Nền Tảng")
+menu = st.sidebar.radio("Chức năng hệ thống", ["Ghi nhận khoản chi", "Thêm ví & Nạp tiền", "Lịch sử giao dịch", "Cấu hình Hệ thống"])
 
 # --- CHỨC NĂNG 1: GHI NHẬN KHOẢN CHI ---
 if menu == "Ghi nhận khoản chi":
@@ -136,6 +150,9 @@ if menu == "Ghi nhận khoản chi":
         so_du_hien_tai = vi_tien[vi_to_sel][vi_nho_sel] if vi_to_sel and vi_nho_sel else 0
         st.info(f"💳 Số dư hiện tại của ví này: **{so_du_hien_tai:,.0f} VNĐ**")
         
+        # Thêm mục đính kèm ảnh hóa đơn chi tiêu
+        anh_chi_file = st.file_uploader("📷 Chụp hoặc tải ảnh hóa đơn chi (PNG, JPG):", type=["png", "jpg", "jpeg"], key="upload_chi")
+        
     with col2:
         mo_ta = st.text_input("Nội dung / Mô tả khoản chi:")
         so_tien = st.number_input("Số tiền chi (VNĐ):", min_value=0, step=1000, value=0)
@@ -146,25 +163,25 @@ if menu == "Ghi nhận khoản chi":
         elif so_tien > so_du_hien_tai:
             st.error("Số dư tài khoản không đủ để thực hiện giao dịch này!")
         else:
-            # Trừ tiền và lưu lịch sử
+            duong_dan_anh = xu_ly_va_luu_anh(anh_chi_file, "CHI")
             st.session_state.data["vi_tien"][vi_to_sel][vi_nho_sel] -= so_tien
             st.session_state.data["lich_su"].insert(0, {
-                "thoi_gian": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "thoi_gian": datetime.now(MUI_GIO_VN).strftime("%Y-%m-%d %H:%M:%S"),
                 "loai": "Chi tiêu",
                 "vi_to": vi_to_sel,
                 "vi_nho": vi_nho_sel,
                 "so_tien": so_tien,
                 "mo_ta": mo_ta,
-                "anh": ""
+                "anh": duong_dan_anh
             })
             if luu_du_lieu():
                 st.success(f"🎉 Đã chi {so_tien:,.0f} VNĐ cho '{mo_ta}'. Hệ thống đã đồng bộ lên Google Sheets!")
                 st.rerun()
 
-# --- CHỨC NĂNG 2: THÊM VÍ & NẠP TIỀN ---
+# --- CHỨC NĂNG 2: THÊM VÍ / NẠP TIỀN / XÓA VÍ ---
 elif menu == "Thêm ví & Nạp tiền":
     st.header("➕ Quản Lý Tài Khoản & Nạp Tiền")
-    tab1, tab2, tab3 = st.tabs(["💵 Nạp Tiền Vào Ví", "📁 Tạo Ví Lớn Mới", "📂 Tạo Ví Nhỏ Mới"])
+    tab1, tab2, tab3, tab4 = st.tabs(["💵 Nạp Tiền Vào Ví", "📁 Tạo Ví Lớn Mới", "📂 Tạo Ví Nhỏ Mới", "❌ Xóa Ví"])
     
     with tab1:
         v_to = st.selectbox("Chọn Ví Lớn cần nạp:", list(vi_tien.keys()), key="nap_to")
@@ -172,13 +189,17 @@ elif menu == "Thêm ví & Nạp tiền":
         st_nap = st.number_input("Số tiền nạp thêm (VNĐ):", min_value=0, step=1000, key="tien_nap")
         mt_nap = st.text_input("Ghi chú nạp tiền:", value="Nạp tiền vào tài khoản", key="note_nap")
         
+        # Thêm mục đính kèm ảnh bằng chứng nạp tiền
+        anh_nap_file = st.file_uploader("📷 Chụp hoặc tải ảnh hóa đơn nạp (PNG, JPG):", type=["png", "jpg", "jpeg"], key="upload_nap")
+        
         if st.button("📥 Xác nhận nạp tiền", type="primary"):
             if st_nap > 0:
+                duong_dan_anh = xu_ly_va_luu_anh(anh_nap_file, "NAP")
                 st.session_state.data["vi_tien"][v_to][v_nho] += st_nap
                 st.session_state.data["lich_su"].insert(0, {
-                    "thoi_gian": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "thoi_gian": datetime.now(MUI_GIO_VN).strftime("%Y-%m-%d %H:%M:%S"),
                     "loai": "Nạp tiền", "vi_to": v_to, "vi_nho": v_nho,
-                    "so_tien": st_nap, "mo_ta": mt_nap, "anh": ""
+                    "so_tien": st_nap, "mo_ta": mt_nap, "anh": duong_dan_anh
                 })
                 luu_du_lieu()
                 st.success("Đã hoàn tất nạp tiền!")
@@ -203,18 +224,48 @@ elif menu == "Thêm ví & Nạp tiền":
                 st.success("Tạo ví nhỏ thành công!")
                 st.rerun()
 
+    with tab4:
+        st.subheader("🗑️ Xóa Ví Không Sử Dụng")
+        st.warning("⚠️ Cảnh báo: Việc xóa ví sẽ xóa cấu hình ví này khỏi hệ thống. Hãy chắc chắn số dư ví đã được xử lý về 0 trước khi xóa.")
+        
+        danh_sach_xoa = []
+        for vt, cvn in vi_tien.items():
+            danh_sach_xoa.append(f"[Ví Lớn] {vt}")
+            for vn in cvn.keys():
+                danh_sach_xoa.append(f"[Ví Nhỏ] {vt} ➔ {vn}")
+                
+        if not danh_sach_xoa:
+            st.info("Chưa có cấu trúc ví nào dữ liệu để xóa.")
+        else:
+            muc_muon_xoa = st.selectbox("Chọn mục ví muốn xóa vĩnh viễn:", danh_sach_xoa)
+            
+            # Tạo hộp kiểm chắc chắn trước khi thực thi lệnh xóa
+            xac_nhan_xoa = st.checkbox("Tôi đồng ý xóa ví này và hiểu rằng hành động này không thể hoàn tác.")
+            
+            if st.button("🔥 XÁC NHẬN XÓA VÍ VĨNH VIỄN", type="secondary", disabled=not xac_nhan_xoa, use_container_width=True):
+                if muc_muon_xoa.startswith("[Ví Lớn]"):
+                    ten_vi_lon = muc_muon_xoa.replace("[Ví Lớn] ", "")
+                    del st.session_state.data["vi_tien"][ten_vi_lon]
+                elif muc_muon_xoa.startswith("[Ví Nhỏ]"):
+                    ten_vi_lon, ten_vi_nho = muc_muon_xoa.replace("[Ví Nhỏ] ", "").split(" ➔ ")
+                    del st.session_state.data["vi_tien"][ten_vi_lon][ten_vi_nho]
+                    if not st.session_state.data["vi_tien"][ten_vi_lon]:
+                        del st.session_state.data["vi_tien"][ten_vi_lon]
+                        
+                luu_du_lieu()
+                st.success("Đã xóa mục ví thành công và cập nhật đồng bộ lên Google Sheets!")
+                st.rerun()
+
 # --- CHỨC NĂNG 3: LỊCH SỬ GIAO DỊCH ---
 elif menu == "Lịch sử giao dịch":
     st.header("📊 Nhật Ký Biến Động Số Dư")
     
-    # Hiển thị bảng số dư tổng quan hiện tại
     st.subheader("Bảng cân đối số dư các ví")
     for vl, cvn in vi_tien.items():
         with st.expander(f"📂 {vl}"):
             for vn, sd in cvn.items():
                 st.write(f"- **{vn}**: {sd:,.0f} VNĐ")
                 
-    # Hiển thị danh sách lịch sử
     st.subheader("Dòng lịch sử giao dịch chi tiết")
     if not lich_su:
         st.write("Chưa có giao dịch nào được ghi nhận.")
@@ -222,13 +273,18 @@ elif menu == "Lịch sử giao dịch":
         for item in lich_su:
             color = "green" if item["loai"] == "Nạp tiền" else "red"
             sign = "+" if item["loai"] == "Nạp tiền" else "-"
+            
+            # Hiển thị thông tin giao dịch cơ bản
             st.markdown(f"⏱️ `{item['thoi_gian']}` | **{item['vi_to']} -> {item['vi_nho']}** | <span style='color:{color}'>{sign} {item['so_tien']:,.0f} VNĐ</span> | Nội dung: *{item['mo_ta']}*", unsafe_allow_html=True)
+            
+            # Nếu giao dịch có đính kèm ảnh và tệp ảnh tồn tại trên máy, hiển thị ảnh nhỏ bên dưới
+            if item.get("anh") and os.path.exists(item["anh"]):
+                st.image(item["anh"], caption="Ảnh hóa đơn đính kèm", width=150)
 
 # --- CHỨC NĂNG 4: CẤU HÌNH HỆ THỐNG & ĐỒNG BỘ ---
 elif menu == "Cấu hình Hệ thống":
     st.header("⚙️ Quản Lý Cấu Hình Kết Nối")
     
-    # Kiểm tra trạng thái trực tiếp bằng cách ping thử Apps Script URL
     st.subheader("Trạng thái kết nối Google Cloud")
     try:
         ping = requests.get(URL_CAU_NOI, timeout=5)
