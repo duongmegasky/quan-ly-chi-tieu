@@ -4,35 +4,115 @@ import os
 import shutil
 from datetime import datetime
 import pandas as pd
+import requests  # Thêm thư viện để kết nối với Google Sheets
 
 # Thiết lập cấu hình trang web (Giao diện rộng, tối ưu mobile)
 st.set_page_config(page_title="Quản Lý Chi Tiêu", page_icon="💰", layout="centered")
 
-# Đổi sang tên file mới tương thích hoàn toàn với Cloud
+# Cấu hình lưu trữ và Đường link cầu nối Google Sheets của bạn
 FILE_SAVE = "dulieu_vi_cloud.json"
 THU_MUC_ANH = "anh_giao_dich"
+URL_CAU_NOI = "https://script.google.com/macros/s/AKfycbx3dXuQdWHLEH_BTogMnF6O-H0x-w4QHHakUgZevcQYT2DyDS8jHhzanZnaCDWf3IwWeg/exec"
 
 if not os.path.exists(THU_MUC_ANH):
     os.makedirs(THU_MUC_ANH)
 
-# Khởi tạo dữ liệu ban đầu
-if "data" not in st.session_state:
+# --- HÀM TẢI DỮ LIỆU TỪ GOOGLE SHEETS ---
+def tai_du_lieu_tu_sheets():
+    try:
+        response = requests.get(URL_CAU_NOI, timeout=10)
+        if response.status_code == 200:
+            gs_data = response.json()
+            vi_tien = {}
+            lich_su = []
+            
+            # 1. Đọc dữ liệu từ sheet "vi_tien"
+            if "vi_tien" in gs_data and len(gs_data["vi_tien"]) > 1:
+                rows = gs_data["vi_tien"]
+                for row in rows[1:]:  # Bỏ qua hàng tiêu đề
+                    if len(row) >= 3:
+                        vt, vn, sd = str(row[0]).strip(), str(row[1]).strip(), row[2]
+                        if vt and vn:
+                            if vt not in vi_tien:
+                                vi_tien[vt] = {}
+                            try: vi_tien[vt][vn] = int(float(sd))
+                            except: vi_tien[vt][vn] = 0
+            
+            # 2. Đọc dữ liệu từ sheet "lich_su"
+            if "lich_su" in gs_data and len(gs_data["lich_su"]) > 1:
+                rows = gs_data["lich_su"]
+                for row in rows[1:]:  # Bỏ qua hàng tiêu đề
+                    if len(row) >= 6:
+                        anh_path = str(row[6]).strip() if len(row) > 6 else ""
+                        try: so_tien = int(float(row[4]))
+                        except: so_tien = 0
+                        lich_su.append({
+                            "thoi_gian": str(row[0]),
+                            "loai": str(row[1]),
+                            "vi_to": str(row[2]),
+                            "vi_nho": str(row[3]),
+                            "so_tien": so_tien,
+                            "mo_ta": str(row[5]),
+                            "anh": anh_path
+                        })
+            
+            # Nếu trên sheet đã có dữ liệu (dù là ví trống), ưu tiên trả về dữ liệu sheet
+            if vi_tien or lich_su:
+                return {"vi_tien": vi_tien, "lich_su": lich_su}
+    except Exception as e:
+        st.warning(f"⚠️ Không thể kết nối lấy dữ liệu từ Google Sheets ({e}). Đang dùng dữ liệu dự phòng.")
+    
+    # BỘ LỌC DỰ PHÒNG: Nếu Sheets trống hoặc lỗi, đọc file JSON cục bộ cũ
     if os.path.exists(FILE_SAVE):
         with open(FILE_SAVE, "r", encoding="utf-8") as f:
             try:
                 du_lieu_cu = json.load(f)
                 if "vi_tien" not in du_lieu_cu:
-                    st.session_state.data = {"vi_tien": du_lieu_cu, "lich_su": []}
-                else:
-                    st.session_state.data = du_lieu_cu
+                    return {"vi_tien": du_lieu_cu, "lich_su": []}
+                return du_lieu_cu
             except:
-                st.session_state.data = {"vi_tien": {}, "lich_su": []}
-    else:
-        st.session_state.data = {"vi_tien": {}, "lich_su": []}
+                pass
+    return {"vi_tien": {}, "lich_su": []}
 
+# --- HÀM ĐỒNG BỘ DỮ LIỆU LÊN GOOGLE SHEETS ---
 def luu_du_lieu():
+    # 1. Lưu cục bộ làm bản backup dự phòng trên Cloud
     with open(FILE_SAVE, "w", encoding="utf-8") as f:
         json.dump(st.session_state.data, f, ensure_ascii=False)
+        
+    # 2. Đẩy dữ liệu đồng bộ lên Google Sheets
+    try:
+        vi_tien = st.session_state.data["vi_tien"]
+        lich_su = st.session_state.data["lich_su"]
+        
+        # Chuyển cấu trúc ví tiền thành dạng bảng phẳng
+        vi_tien_rows = [["Ví Lớn", "Ví Nhỏ", "Số Dư"]]
+        for vt, cvn in vi_tien.items():
+            for vn, sd in cvn.items():
+                vi_tien_rows.append([vt, vn, sd])
+                
+        # Chuyển cấu trúc lịch sử thành dạng bảng phẳng
+        lich_su_rows = [["Thời Gian", "Loại", "Ví Lớn", "Ví Nhỏ", "Số Tiền", "Mô Tả", "Ảnh"]]
+        for x in lich_su:
+            lich_su_rows.append([
+                x.get("thoi_gian", ""),
+                x.get("loai", ""),
+                x.get("vi_to", ""),
+                x.get("vi_nho", ""),
+                x.get("so_tien", 0),
+                x.get("mo_ta", ""),
+                x.get("anh", "")
+            ])
+            
+        # Gửi request cập nhật đồng thời lên cả 2 sheet riêng biệt
+        requests.post(URL_CAU_NOI, json={"action": "update_all", "sheetName": "vi_tien", "rows": vi_tien_rows}, timeout=10)
+        requests.post(URL_CAU_NOI, json={"action": "update_all", "sheetName": "lich_su", "rows": lich_su_rows}, timeout=10)
+    except Exception as e:
+        st.error(f"❌ Lỗi đồng bộ lên Google Sheets: {e}")
+
+# Khởi tạo dữ liệu ban đầu từ Google Sheets
+if "data" not in st.session_state:
+    st.session_state.data = tai_du_lieu_tu_sheets()
 
 def ghi_lich_su(loai, vi_to, vi_nho, so_tien, mo_ta, file_anh):
     thoi_gian = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -60,10 +140,11 @@ st.title("💰 Quản Lý Chi Tiêu Đa Nền Tảng")
 # Tab chức năng
 tab1, tab2, tab3, tab4 = st.tabs(["📋 Danh sách & Lịch sử", "📥 Nạp tiền / Tạo ví", "📤 Ghi nhận Chi tiêu", "⚙️ Quản lý Ví"])
 
+vi_tien_dict = st.session_state.data["vi_tien"]
+
 # TAB 1: DANH SÁCH VÍ & LỊCH SỬ
 with tab1:
     st.subheader("📊 Danh sách ví hiện tại")
-    vi_tien_dict = st.session_state.data["vi_tien"]
     if not vi_tien_dict:
         st.info("Chưa có ví nào được tạo.")
     else:
@@ -128,7 +209,7 @@ with tab1:
                     st.session_state.data["lich_su"][selected_idx]["so_tien"] = new_so_tien
                     
                     luu_du_lieu()
-                    st.success("Đã cập nhật thay đổi!")
+                    st.success("Đã cập nhật thay đổi thành công lên Google Sheets!")
                     st.rerun()
                     
             with btn_col2:
@@ -149,7 +230,7 @@ with tab1:
                         
                     st.session_state.data["lich_su"].pop(selected_idx)
                     luu_du_lieu()
-                    st.success("Đã xóa giao dịch!")
+                    st.success("Đã xóa giao dịch thành công trên Google Sheets!")
                     st.rerun()
     else:
         st.info("Chưa có lịch sử giao dịch.")
@@ -178,7 +259,7 @@ with tab2:
                 ghi_lich_su("NẠP", ten_vi_to, ten_vi_nho, tien_ban_dau, mo_ta_nap, anh_nap)
             
             luu_du_lieu()
-            st.success(f"Đã nạp thành công {tien_ban_dau:,} đ!")
+            st.success(f"Đã nạp thành công {tien_ban_dau:,} đ và đồng bộ lên Google Sheets!")
             st.rerun()
 
 # TAB 3: GHI NHẬN CHI TIÊU
@@ -210,7 +291,7 @@ with tab3:
                     st.session_state.data["vi_tien"][vi_to][vi_nho] -= so_tien_chi
                     ghi_lich_su("CHI", vi_to, vi_nho, so_tien_chi, mo_ta_chi, anh_chi)
                     luu_du_lieu()
-                    st.success(f"Đã ghi nhận chi {so_tien_chi:,} đ!")
+                    st.success(f"Đã ghi nhận chi {so_tien_chi:,} đ và cập nhật lên Google Sheets!")
                     st.rerun()
 
 # TAB 4: QUẢN LÝ VÍ (ĐỔI TÊN / XÓA)
@@ -245,7 +326,7 @@ with tab4:
                         else:
                             st.session_state.data["vi_tien"][v_to][ten_moi] = st.session_state.data["vi_tien"][v_to].pop(v_nho_cu)
                     luu_du_lieu()
-                    st.success("Đổi tên thành công!")
+                    st.success("Đổi tên ví thành công!")
                     st.rerun()
         
         with col2:
@@ -259,5 +340,5 @@ with tab4:
                     if not st.session_state.data["vi_tien"][v_to]:
                         del st.session_state.data["vi_tien"][v_to]
                 luu_du_lieu()
-                st.success("Đã xóa ví thành công!")
+                st.success("Đã xóa ví thành công trên hệ thống và Google Sheets!")
                 st.rerun()
