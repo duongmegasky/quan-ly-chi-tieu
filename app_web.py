@@ -9,7 +9,7 @@ st.set_page_config(page_title="Quản Lý Chi Tiêu Đa Nền Tảng", page_icon
 # =====================================================================
 # CẤU HÌNH ĐƯỜNG DẪN GOOGLE APPS SCRIPT CỦA BẠN
 # =====================================================================
-API_URL = "https://script.google.com/macros/s/AKfycbx3dXuQdWHLEH_BTogMnF6O-H0x-w4QHHakUgZevcQYT2DyDS8jHhzanZnaCDWf3lwWeg/exec"
+API_URL = "https://script.google.com/macros/s/AKfycbx3dXuQdWHLEH_BTogMnF6O-H0x-w4QHHakUgZevcQYT2DyDS8jHhzanZnaCDWf3IwWeg/exec"
 SHEET_NAME = "GiaoDich"  # Tên trang tính lưu trữ trong file Google Sheets
 
 # =====================================================================
