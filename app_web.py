@@ -1,125 +1,344 @@
 import streamlit as st
-import requests
-import pandas as pd
+import json
+import os
+import shutil
 from datetime import datetime
+import pandas as pd
+import requests  # Thêm thư viện để kết nối với Google Sheets
 
-# 1. ĐIỀN URL WEB APP APPS SCRIPT CỦA BẠN VÀO ĐÂY
-WEB_APP_URL = "https://script.google.com/macros/s/AKfycbx3dXuQdWLEH_BTogMnF6O-H0x-w4QHHakUgZevcQYT2DyDS8jHhzanZnaCDWf3lwWeg/exec"
+# Thiết lập cấu hình trang web (Giao diện rộng, tối ưu mobile)
+st.set_page_config(page_title="Quản Lý Chi Tiêu", page_icon="💰", layout="centered")
 
-st.set_page_config(page_title="Quản Lý Chi Tiêu Đa Nền Tảng", page_icon="💰", layout="縱向" if 'layout' not in st.session_state else "wide")
+# Cấu hình lưu trữ và Đường link cầu nối Google Sheets của bạn
+FILE_SAVE = "dulieu_vi_cloud.json"
+THU_MUC_ANH = "anh_giao_dich"
+URL_CAU_NOI = "https://script.google.com/macros/s/AKfycbx3dXuQdWHLEH_BTogMnF6O-H0x-w4QHHakUgZevcQYT2DyDS8jHhzanZnaCDWf3IwWeg/exec"
 
-# Hàm lấy toàn bộ dữ liệu (doGet)
-@st.cache_data(ttl=10)  # Lưu bộ nhớ đệm 10 giây để ứng dụng mượt mà hơn
-def fetch_all_data():
+if not os.path.exists(THU_MUC_ANH):
+    os.makedirs(THU_MUC_ANH)
+
+# --- HÀM TẢI DỮ LIỆU TỪ GOOGLE SHEETS ---
+def tai_du_lieu_tu_sheets():
     try:
-        res = requests.get(WEB_APP_URL, timeout=10)
-        if res.status_code == 200:
-            return res.json()
-        return None
+        response = requests.get(URL_CAU_NOI, timeout=10)
+        if response.status_code == 200:
+            gs_data = response.json()
+            vi_tien = {}
+            lich_su = []
+            
+            # 1. Đọc dữ liệu từ sheet "vi_tien"
+            if "vi_tien" in gs_data and len(gs_data["vi_tien"]) > 1:
+                rows = gs_data["vi_tien"]
+                for row in rows[1:]:  # Bỏ qua hàng tiêu đề
+                    if len(row) >= 3:
+                        vt, vn, sd = str(row[0]).strip(), str(row[1]).strip(), row[2]
+                        if vt and vn:
+                            if vt not in vi_tien:
+                                vi_tien[vt] = {}
+                            try: vi_tien[vt][vn] = int(float(sd))
+                            except: vi_tien[vt][vn] = 0
+            
+            # 2. Đọc dữ liệu từ sheet "lich_su"
+            if "lich_su" in gs_data and len(gs_data["lich_su"]) > 1:
+                rows = gs_data["lich_su"]
+                for row in rows[1:]:  # Bỏ qua hàng tiêu đề
+                    if len(row) >= 6:
+                        anh_path = str(row[6]).strip() if len(row) > 6 else ""
+                        try: so_tien = int(float(row[4]))
+                        except: so_tien = 0
+                        lich_su.append({
+                            "thoi_gian": str(row[0]),
+                            "loai": str(row[1]),
+                            "vi_to": str(row[2]),
+                            "vi_nho": str(row[3]),
+                            "so_tien": so_tien,
+                            "mo_ta": str(row[5]),
+                            "anh": anh_path
+                        })
+            
+            # Nếu trên sheet đã có dữ liệu (dù là ví trống), ưu tiên trả về dữ liệu sheet
+            if vi_tien or lich_su:
+                return {"vi_tien": vi_tien, "lich_su": lich_su}
     except Exception as e:
-        return None
+        st.warning(f"⚠️ Không thể kết nối lấy dữ liệu từ Google Sheets ({e}). Đang dùng dữ liệu dự phòng.")
+    
+    # BỘ LỌC DỰ PHÒNG: Nếu Sheets trống hoặc lỗi, đọc file JSON cục bộ cũ
+    if os.path.exists(FILE_SAVE):
+        with open(FILE_SAVE, "r", encoding="utf-8") as f:
+            try:
+                du_lieu_cu = json.load(f)
+                if "vi_tien" not in du_lieu_cu:
+                    return {"vi_tien": du_lieu_cu, "lich_su": []}
+                return du_lieu_cu
+            except:
+                pass
+    return {"vi_tien": {}, "lich_su": []}
 
-# Hàm gửi dữ liệu lên Sheets (doPost)
-def send_data_to_sheets(payload):
+# --- HÀM ĐỒNG BỘ DỮ LIỆU LÊN GOOGLE SHEETS ---
+def luu_du_lieu():
+    # 1. Lưu cục bộ làm bản backup dự phòng trên Cloud
+    with open(FILE_SAVE, "w", encoding="utf-8") as f:
+        json.dump(st.session_state.data, f, ensure_ascii=False)
+        
+    # 2. Đẩy dữ liệu đồng bộ lên Google Sheets
     try:
-        res = requests.post(WEB_APP_URL, json=payload, timeout=15)
-        if res.status_code == 200:
-            # Nhận phản hồi dạng Text ("Success") giúp tránh hoàn toàn lỗi Expecting Value JSON
-            return res.text 
-        return f"Lỗi kết nối Server: mã lỗi {res.status_code}"
+        vi_tien = st.session_state.data["vi_tien"]
+        lich_su = st.session_state.data["lich_su"]
+        
+        # Chuyển cấu trúc ví tiền thành dạng bảng phẳng
+        vi_tien_rows = [["Ví Lớn", "Ví Nhỏ", "Số Dư"]]
+        for vt, cvn in vi_tien.items():
+            for vn, sd in cvn.items():
+                vi_tien_rows.append([vt, vn, sd])
+                
+        # Chuyển cấu trúc lịch sử thành dạng bảng phẳng
+        lich_su_rows = [["Thời Gian", "Loại", "Ví Lớn", "Ví Nhỏ", "Số Tiền", "Mô Tả", "Ảnh"]]
+        for x in lich_su:
+            lich_su_rows.append([
+                x.get("thoi_gian", ""),
+                x.get("loai", ""),
+                x.get("vi_to", ""),
+                x.get("vi_nho", ""),
+                x.get("so_tien", 0),
+                x.get("mo_ta", ""),
+                x.get("anh", "")
+            ])
+            
+        # Gửi request cập nhật đồng thời lên cả 2 sheet riêng biệt
+        requests.post(URL_CAU_NOI, json={"action": "update_all", "sheetName": "vi_tien", "rows": vi_tien_rows}, timeout=10)
+        requests.post(URL_CAU_NOI, json={"action": "update_all", "sheetName": "lich_su", "rows": lich_su_rows}, timeout=10)
     except Exception as e:
-        return f"Lỗi hệ thống: {str(e)}"
+        st.error(f"❌ Lỗi đồng bộ lên Google Sheets: {e}")
 
-# Tải dữ liệu từ Google Sheets về
-data_sheets = fetch_all_data()
+# Khởi tạo dữ liệu ban đầu từ Google Sheets
+if "data" not in st.session_state:
+    st.session_state.data = tai_du_lieu_tu_sheets()
 
+def ghi_lich_su(loai, vi_to, vi_nho, so_tien, mo_ta, file_anh):
+    thoi_gian = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    anh_luu = ""
+    if file_anh is not None:
+        phan_mo_rong = os.path.splitext(file_anh.name)[1]
+        ten_file_moi = f"{loai}_{datetime.now().strftime('%Y%m%d_%H%M%S')}{phan_mo_rong}"
+        anh_luu = os.path.join(THU_MUC_ANH, ten_file_moi)
+        with open(anh_luu, "wb") as f:
+            f.write(file_anh.getbuffer())
+
+    st.session_state.data["lich_su"].append({
+        "thoi_gian": thoi_gian,
+        "loai": loai,
+        "vi_to": vi_to,
+        "vi_nho": vi_nho,
+        "so_tien": so_tien,
+        "mo_ta": mo_ta,
+        "anh": anh_luu
+    })
+
+# --- GIAO DIỆN CHÍNH ---
 st.title("💰 Quản Lý Chi Tiêu Đa Nền Tảng")
 
-# Tạo 4 Tabs chức năng chuẩn ban đầu
+# Tab chức năng
 tab1, tab2, tab3, tab4 = st.tabs(["📋 Danh sách & Lịch sử", "📥 Nạp tiền / Tạo ví", "📤 Ghi nhận Chi tiêu", "⚙️ Quản lý Ví"])
 
-# --- TAB 1: DANH SÁCH & LỊCH SỬ ---
+vi_tien_dict = st.session_state.data["vi_tien"]
+
+# TAB 1: DANH SÁCH VÍ & LỊCH SỬ
 with tab1:
-    st.header("📋 Lịch sử giao dịch dữ liệu")
-    if data_sheets:
-        st.success("🟢 Kết nối đồng bộ dữ liệu thành công!")
-        for sheet_name, rows in data_sheets.items():
-            st.subheader(f"Dữ liệu bảng: {sheet_name}")
-            if len(rows) > 0:
-                df = pd.DataFrame(rows[1:], columns=rows[0])
-                st.dataframe(df, use_container_width=True)
-            else:
-                st.info("Bảng này hiện tại chưa có dòng dữ liệu nào.")
+    st.subheader("📊 Danh sách ví hiện tại")
+    if not vi_tien_dict:
+        st.info("Chưa có ví nào được tạo.")
     else:
-        st.error("❌ Không thể tải dữ liệu. Vui lòng kiểm tra lại cấu hình hoặc đường truyền URL Web App.")
+        for vi_to, cac_vi_nho in vi_tien_dict.items():
+            with st.expander(f"■ {vi_to}", expanded=True):
+                for vi_nho, so_tien in cac_vi_nho.items():
+                    st.write(f"🔹 **{vi_nho}**: {so_tien:,} đ")
 
-# --- TAB 2: NẠP TIỀN / TẠO VÍ (Bản trực tiếp - Không Modal) ---
+    st.markdown("---")
+    st.subheader("📜 Lịch sử giao dịch")
+    lich_su_list = st.session_state.data["lich_su"]
+    if lich_su_list:
+        df = pd.DataFrame(lich_su_list)
+        df_hien_thi = df.copy()
+        df_hien_thi["Ví tiền"] = df_hien_thi["vi_to"] + " ➔ " + df_hien_thi["vi_nho"]
+        df_hien_thi = df_hien_thi[["thoi_gian", "loai", "Ví tiền", "so_tien", "mo_ta", "anh"]]
+        df_hien_thi.columns = ["Thời Gian", "Loại", "Ví Tiền", "Số Tiền (đ)", "Mục Đích", "Đường dẫn ảnh"]
+        
+        st.dataframe(df_hien_thi.iloc[::-1], use_container_width=True)
+        
+        # --- KHU VỰC SỬA / XÓA LỊCH SỬ GIAO DỊCH ---
+        st.markdown("---")
+        st.caption("🛠️ **Công cụ Quản lý Lịch sử (Sửa / Xóa Giao Dịch)**")
+        
+        options_lich_su = list(range(len(lich_su_list)))
+        format_func = lambda idx: f"[{lich_su_list[idx]['thoi_gian']}] {lich_su_list[idx]['loai']} | {lich_su_list[idx]['vi_to']}➔{lich_su_list[idx]['vi_nho']} | {lich_su_list[idx]['so_tien']:,}đ - {lich_su_list[idx]['mo_ta']}"
+        
+        selected_idx = st.selectbox("Chọn dòng giao dịch muốn can thiệp:", options=reversed(options_lich_su), format_func=format_func)
+        
+        if selected_idx is not None:
+            gd_chon = lich_su_list[selected_idx]
+            
+            if gd_chon.get("anh") and os.path.exists(gd_chon["anh"]):
+                st.image(gd_chon["anh"], caption="Ảnh hóa đơn hiện tại", width=200)
+                
+            col_edit1, col_edit2 = st.columns(2)
+            with col_edit1:
+                new_mo_ta = st.text_input("Sửa Mục đích / Mô tả:", value=gd_chon["mo_ta"])
+            with col_edit2:
+                new_so_tien = st.number_input("Sửa Số tiền (đ):", min_value=0, value=int(gd_chon["so_tien"]), step=1000)
+                
+            btn_col1, btn_col2 = st.columns(2)
+            with btn_col1:
+                if st.button("✏️ Cập nhật thay đổi", type="primary", use_container_width=True):
+                    vi_t = gd_chon["vi_to"]
+                    vi_n = gd_chon["vi_nho"]
+                    loai_gd = gd_chon["loai"]
+                    
+                    if vi_t in st.session_state.data["vi_tien"] and vi_n in st.session_state.data["vi_tien"][vi_t]:
+                        if loai_gd == "NẠP":
+                            st.session_state.data["vi_tien"][vi_t][vi_n] -= gd_chon["so_tien"]
+                        elif loai_gd == "CHI":
+                            st.session_state.data["vi_tien"][vi_t][vi_n] += gd_chon["so_tien"]
+                    
+                    if vi_t in st.session_state.data["vi_tien"] and vi_n in st.session_state.data["vi_tien"][vi_t]:
+                        if loai_gd == "NẠP":
+                            st.session_state.data["vi_tien"][vi_t][vi_n] += new_so_tien
+                        elif loai_gd == "CHI":
+                            st.session_state.data["vi_tien"][vi_t][vi_n] -= new_so_tien
+                    
+                    st.session_state.data["lich_su"][selected_idx]["mo_ta"] = new_mo_ta
+                    st.session_state.data["lich_su"][selected_idx]["so_tien"] = new_so_tien
+                    
+                    luu_du_lieu()
+                    st.success("Đã cập nhật thay đổi thành công lên Google Sheets!")
+                    st.rerun()
+                    
+            with btn_col2:
+                if st.button("🗑️ XÓA dòng giao dịch này", type="secondary", use_container_width=True):
+                    vi_t = gd_chon["vi_to"]
+                    vi_n = gd_chon["vi_nho"]
+                    loai_gd = gd_chon["loai"]
+                    
+                    if vi_t in st.session_state.data["vi_tien"] and vi_n in st.session_state.data["vi_tien"][vi_t]:
+                        if loai_gd == "NẠP":
+                            st.session_state.data["vi_tien"][vi_t][vi_n] -= gd_chon["so_tien"]
+                        elif loai_gd == "CHI":
+                            st.session_state.data["vi_tien"][vi_t][vi_n] += gd_chon["so_tien"]
+                    
+                    if gd_chon.get("anh") and os.path.exists(gd_chon["anh"]):
+                        try: os.remove(gd_chon["anh"])
+                        except: pass
+                        
+                    st.session_state.data["lich_su"].pop(selected_idx)
+                    luu_du_lieu()
+                    st.success("Đã xóa giao dịch thành công trên Google Sheets!")
+                    st.rerun()
+    else:
+        st.info("Chưa có lịch sử giao dịch.")
+
+# TAB 2: NẠP TIỀN / KHỞI TẠO VÍ
 with tab2:
-    st.header("📥 Thêm ví hoặc Nạp thêm tiền")
-    
-    vi_to = st.selectbox("Chọn Ví To (Ví dụ: Thẻ ngân hàng, Tiền mặt...):", ["Tiền mặt", "Thẻ ngân hàng", "Ví điện tử"], key="txt_vi_to")
-    vi_nho = st.selectbox("Chọn Ví Nhỏ (Ví dụ: Tiền ăn, Tiền sinh hoạt...):", ["Tiền sinh hoạt", "Tiền ăn", "Tiền nhà", "Tiết kiệm"], key="txt_vi_nho")
-    so_tien_nap = st.number_input("Số tiền nạp (VNĐ):", min_value=0, step=1000, value=50000)
-    
-    # Nút bấm xử lý trực tiếp không qua trung gian câu hỏi
-    if st.button("XÁC NHẬN NẠP TIỀN / TẠO VÍ", type="primary"):
-        if so_tien_nap <= 0:
-            st.warning("⚠️ Số tiền nạp vào bắt buộc phải lớn hơn 0 VNĐ.")
-        else:
-            with st.spinner("Đang gửi dữ liệu trực tiếp lên Google Sheets..."):
-                thoi_gian_hien_tai = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                payload = {
-                    "sheetName": "NapTien",  # Dữ liệu sẽ đẩy vào sheet có tên 'NapTien'
-                    "action": "append",
-                    "row": [thoi_gian_hien_tai, vi_to, vi_nho, so_tien_nap]
-                }
-                
-                ket_qua = send_data_to_sheets(payload)
-                if ket_qua == "Success":
-                    st.success(f"🎉 Thành công! Đã nạp xong {so_tien_nap:,} VNĐ vào ví [{vi_to} -> {vi_nho}].")
-                    st.cache_data.clear() # Xóa cache để tab lịch sử cập nhật mới luôn
-                    st.rerun()
-                else:
-                    st.error(f"❌ Đồng bộ thất bại. Chi tiết: {ket_qua}")
+    st.subheader("📥 Thêm ví hoặc Nạp thêm tiền")
+    ten_vi_to = st.text_input("Tên Ví To (Ví dụ: Thẻ ngân hàng, Tiền mặt):", key="nap_vi_to").strip()
+    ten_vi_nho = st.text_input("Tên Ví Nhỏ (Ví dụ: Tiền ăn, Tiền nhà):", key="nap_vi_nho").strip()
+    tien_ban_dau = st.number_input("Số tiền nạp (VNĐ):", min_value=0, step=10000, value=0)
+    mo_ta_nap = st.text_input("Mục đích nạp:", value="Khởi tạo/Nạp thêm").strip()
+    anh_nap = st.file_uploader("Chọn ảnh bằng chứng nạp (nếu có):", type=["png", "jpg", "jpeg"], key="anh_nap")
 
-# --- TAB 3: GHI NHẬN CHI TIÊU ---
+    if st.button("🚀 NẠP TIỀN / LƯU VÍ", type="primary"):
+        if not ten_vi_to or not ten_vi_nho:
+            st.error("Vui lòng nhập đủ Tên Ví To và Tên Ví Nhỏ!")
+        else:
+            if ten_vi_to not in st.session_state.data["vi_tien"]:
+                st.session_state.data["vi_tien"][ten_vi_to] = {}
+            if ten_vi_nho in st.session_state.data["vi_tien"][ten_vi_to]:
+                st.session_state.data["vi_tien"][ten_vi_to][ten_vi_nho] += tien_ban_dau
+            else:
+                st.session_state.data["vi_tien"][ten_vi_to][ten_vi_nho] = tien_ban_dau
+
+            if tien_ban_dau > 0:
+                ghi_lich_su("NẠP", ten_vi_to, ten_vi_nho, tien_ban_dau, mo_ta_nap, anh_nap)
+            
+            luu_du_lieu()
+            st.success(f"Đã nạp thành công {tien_ban_dau:,} đ và đồng bộ lên Google Sheets!")
+            st.rerun()
+
+# TAB 3: GHI NHẬN CHI TIÊU
 with tab3:
-    st.header("📤 Ghi nhận khoản chi")
-    
-    vi_thanh_toan = st.selectbox("Chọn ví thực hiện thanh toán:", ["Tiền mặt -> Tiền sinh hoạt", "Tiền mặt -> Tiền ăn", "Thẻ ngân hàng -> Tiền nhà"])
-    muc_dich = st.text_input("Mục đích chi (Bắt buộc):", placeholder="Ví dụ: mua nước lọc, trà sữa...")
-    so_tien_chi = st.number_input("Số tiền chi (VNĐ):", min_value=0, step=1000, value=10000)
-    file_anh = st.file_uploader("Chọn ảnh hóa đơn kèm theo (nếu có):", type=["png", "jpg", "jpeg"])
-    
-    if st.button("XÁC NHẬN CHI TIÊU", type="primary"):
-        if not muc_dich:
-            st.warning("⚠️ Vui lòng nhập lý do / mục đích chi tiêu.")
-        elif so_tien_chi <= 0:
-            st.warning("⚠️ Số tiền chi tiêu phải lớn hơn 0 VNĐ.")
-        else:
-            with st.spinner("Đang lưu giao dịch chi tiêu..."):
-                thoi_gian_hien_tai = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                payload = {
-                    "sheetName": "ChiTieu",  # Dữ liệu đẩy vào sheet 'ChiTieu'
-                    "action": "append",
-                    "row": [thoi_gian_hien_tai, vi_thanh_toan, muc_dich, so_tien_chi]
-                }
-                
-                ket_qua = send_data_to_sheets(payload)
-                if ket_qua == "Success":
-                    st.success(f"🎉 Đã ghi nhận khoản chi {so_tien_chi:,} VNĐ thành công!")
-                    st.cache_data.clear()
-                    st.rerun()
-                else:
-                    st.error(f"❌ Thất bại: {ket_qua}")
-
-# --- TAB 4: QUẢN LÝ CẤU HÌNH ---
-with tab4:
-    st.header("⚙️ Quản lý Cấu hình Hệ thống")
-    st.markdown("**Đường dẫn Web App đang chạy kết nối:**")
-    st.code(WEB_APP_URL)
-    
-    if data_sheets:
-        st.markdown("**Trạng thái hệ thống:** 🟢 Hoạt động bình thường")
+    st.subheader("📤 Ghi nhận khoản chi")
+    danh_sach_chi_tieu = []
+    for vt, cvn in vi_tien_dict.items():
+        for vn in cvn.keys():
+            danh_sach_chi_tieu.append(f"{vt} ➔ {vn}")
+            
+    if not danh_sach_chi_tieu:
+        st.warning("Vui lòng tạo ví trước khi ghi nhận chi tiêu.")
     else:
-        st.markdown("**Trạng thái hệ thống:** ❌ Mất kết nối Google Sheets")
+        lua_chon_vi = st.selectbox("Chọn ví thanh toán:", danh_sach_chi_tieu)
+        mo_ta_chi = st.text_input("Mục đích chi (Bắt buộc):").strip()
+        so_tien_chi = st.number_input("Số tiền chi (VNĐ):", min_value=0, step=10000, value=0)
+        anh_chi = st.file_uploader("Chọn ảnh hóa đơn chi (nếu có):", type=["png", "jpg", "jpeg"], key="anh_chi")
+
+        if st.button("🔥 XÁC NHẬN CHI TIÊU", type="primary"):
+            if not mo_ta_chi:
+                st.error("Bạn phải điền mục đích chi tiêu!")
+            elif so_tien_chi <= 0:
+                st.error("Số tiền chi phải lớn hơn 0!")
+            else:
+                vi_to, vi_nho = lua_chon_vi.split(" ➔ ")
+                if st.session_state.data["vi_tien"][vi_to][vi_nho] < so_tien_chi:
+                    st.error(f"Ví '{vi_nho}' không đủ số dư để chi!")
+                else:
+                    st.session_state.data["vi_tien"][vi_to][vi_nho] -= so_tien_chi
+                    ghi_lich_su("CHI", vi_to, vi_nho, so_tien_chi, mo_ta_chi, anh_chi)
+                    luu_du_lieu()
+                    st.success(f"Đã ghi nhận chi {so_tien_chi:,} đ và cập nhật lên Google Sheets!")
+                    st.rerun()
+
+# TAB 4: QUẢN LÝ VÍ (ĐỔI TÊN / XÓA)
+with tab4:
+    st.subheader("⚙️ Chỉnh sửa hoặc Xóa Ví")
+    danh_sach_quan_ly = []
+    for vt, cvn in vi_tien_dict.items():
+        danh_sach_quan_ly.append(f"[Ví To] {vt}")
+        for vn in cvn.keys():
+            danh_sach_quan_ly.append(f"[Ví Nhỏ] {vt} ➔ {vn}")
+            
+    if not danh_sach_quan_ly:
+        st.info("Chưa có ví nào để quản lý.")
+    else:
+        vi_ql = st.selectbox("Chọn mục cần xử lý:", danh_sach_quan_ly)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            ten_moi = st.text_input("Nhập tên mới nếu muốn sửa tên:").strip()
+            if st.button("✏️ Đổi Tên"):
+                if ten_moi:
+                    if vi_ql.startswith("[Ví To]"):
+                        ten_cu = vi_ql.replace("[Ví To] ", "")
+                        if ten_moi in st.session_state.data["vi_tien"]:
+                            st.error("Tên Ví To đã tồn tại!")
+                        else:
+                            st.session_state.data["vi_tien"][ten_moi] = st.session_state.data["vi_tien"].pop(ten_cu)
+                    elif vi_ql.startswith("[Ví Nhỏ]"):
+                        v_to, v_nho_cu = vi_ql.replace("[Ví Nhỏ] ", "").split(" ➔ ")
+                        if ten_moi in st.session_state.data["vi_tien"][v_to]:
+                            st.error("Tên Ví Nhỏ đã tồn tại!")
+                        else:
+                            st.session_state.data["vi_tien"][v_to][ten_moi] = st.session_state.data["vi_tien"][v_to].pop(v_nho_cu)
+                    luu_du_lieu()
+                    st.success("Đổi tên ví thành công!")
+                    st.rerun()
+        
+        with col2:
+            st.write("Hành động nguy hiểm:")
+            if st.button("❌ XÓA VÍ NÀY", type="secondary"):
+                if vi_ql.startswith("[Ví To]"):
+                    del st.session_state.data["vi_tien"][vi_ql.replace("[Ví To] ", "")]
+                elif vi_ql.startswith("[Ví Nhỏ]"):
+                    v_to, v_nho = vi_ql.replace("[Ví Nhỏ] ", "").split(" ➔ ")
+                    del st.session_state.data["vi_tien"][v_to][v_nho]
+                    if not st.session_state.data["vi_tien"][v_to]:
+                        del st.session_state.data["vi_tien"][v_to]
+                luu_du_lieu()
+                st.success("Đã xóa ví thành công trên hệ thống và Google Sheets!")
+                st.rerun()
