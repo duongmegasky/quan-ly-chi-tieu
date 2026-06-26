@@ -12,7 +12,7 @@ st.set_page_config(page_title="Quản Lý Chi Tiêu", page_icon="💰", layout="
 # Cấu hình lưu trữ và Đường link cầu nối Google Sheets của bạn
 FILE_SAVE = "dulieu_vi_cloud.json"
 THU_MUC_ANH = "anh_giao_dich"
-URL_CAU_NOI = "https://script.google.com/macros/s/AKfycbx3dXuQdWHLEH_BTogMnF6O-H0x-w4QHHakUgZevcQYT2DyDS8jHhzanZnaCDWf3IwWeg/exec"
+URL_CAU_NOI = "https://script.google.com/macros/s/AKfycbx3dXuQdWLEH_BTogMnF6O-H0x-w4QHHakUgZevcQYT2DyDS8jHhzanZnaCDWf3IwWeg/exec"
 
 if not os.path.exists(THU_MUC_ANH):
     os.makedirs(THU_MUC_ANH)
@@ -188,50 +188,82 @@ with tab1:
                 
             btn_col1, btn_col2 = st.columns(2)
             with btn_col1:
-                if st.button("✏️ Cập nhật thay đổi", type="primary", use_container_width=True):
-                    vi_t = gd_chon["vi_to"]
-                    vi_n = gd_chon["vi_nho"]
-                    loai_gd = gd_chon["loai"]
-                    
-                    if vi_t in st.session_state.data["vi_tien"] and vi_n in st.session_state.data["vi_tien"][vi_t]:
-                        if loai_gd == "NẠP":
-                            st.session_state.data["vi_tien"][vi_t][vi_n] -= gd_chon["so_tien"]
-                        elif loai_gd == "CHI":
-                            st.session_state.data["vi_tien"][vi_t][vi_n] += gd_chon["so_tien"]
-                    
-                    if vi_t in st.session_state.data["vi_tien"] and vi_n in st.session_state.data["vi_tien"][vi_t]:
-                        if loai_gd == "NẠP":
-                            st.session_state.data["vi_tien"][vi_t][vi_n] += new_so_tien
-                        elif loai_gd == "CHI":
-                            st.session_state.data["vi_tien"][vi_t][vi_n] -= new_so_tien
-                    
-                    st.session_state.data["lich_su"][selected_idx]["mo_ta"] = new_mo_ta
-                    st.session_state.data["lich_su"][selected_idx]["so_tien"] = new_so_tien
-                    
-                    luu_du_lieu()
-                    st.success("Đã cập nhật thay đổi thành công lên Google Sheets!")
-                    st.rerun()
+                if "confirm_edit_ls" not in st.session_state:
+                    st.session_state.confirm_edit_ls = False
+                
+                if not st.session_state.confirm_edit_ls:
+                    if st.button("✏️ Cập nhật thay đổi", type="primary", use_container_width=True):
+                        st.session_state.confirm_edit_ls = True
+                        st.rerun()
+                else:
+                    st.warning("❓ Bạn có muốn CẬP NHẬT dòng này?")
+                    c_ed1, c_ed2 = st.columns(2)
+                    with c_ed1:
+                        if st.button("👍 Có, Sửa", type="primary", use_container_width=True):
+                            vi_t = gd_chon["vi_to"]
+                            vi_n = gd_chon["vi_nho"]
+                            loai_gd = gd_chon["loai"]
+                            
+                            if vi_t in st.session_state.data["vi_tien"] and vi_n in st.session_state.data["vi_tien"][vi_t]:
+                                if loai_gd == "NẠP":
+                                    st.session_state.data["vi_tien"][vi_t][vi_n] -= gd_chon["so_tien"]
+                                elif loai_gd == "CHI":
+                                    st.session_state.data["vi_tien"][vi_t][vi_n] += gd_chon["so_tien"]
+                            
+                            if vi_t in st.session_state.data["vi_tien"] and vi_n in st.session_state.data["vi_tien"][vi_t]:
+                                if loai_gd == "NẠP":
+                                    st.session_state.data["vi_tien"][vi_t][vi_n] += new_so_tien
+                                elif loai_gd == "CHI":
+                                    st.session_state.data["vi_tien"][vi_t][vi_n] -= new_so_tien
+                            
+                            st.session_state.data["lich_su"][selected_idx]["mo_ta"] = new_mo_ta
+                            st.session_state.data["lich_su"][selected_idx]["so_tien"] = new_so_tien
+                            
+                            luu_du_lieu()
+                            st.success("Đã cập nhật thay đổi thành công lên Google Sheets!")
+                            st.session_state.confirm_edit_ls = False
+                            st.rerun()
+                    with c_ed2:
+                        if st.button("👎 Không, Hủy", type="secondary", use_container_width=True):
+                            st.session_state.confirm_edit_ls = False
+                            st.rerun()
                     
             with btn_col2:
-                if st.button("🗑️ XÓA dòng giao dịch này", type="secondary", use_container_width=True):
-                    vi_t = gd_chon["vi_to"]
-                    vi_n = gd_chon["vi_nho"]
-                    loai_gd = gd_chon["loai"]
-                    
-                    if vi_t in st.session_state.data["vi_tien"] and vi_n in st.session_state.data["vi_tien"][vi_t]:
-                        if loai_gd == "NẠP":
-                            st.session_state.data["vi_tien"][vi_t][vi_n] -= gd_chon["so_tien"]
-                        elif loai_gd == "CHI":
-                            st.session_state.data["vi_tien"][vi_t][vi_n] += gd_chon["so_tien"]
-                    
-                    if gd_chon.get("anh") and os.path.exists(gd_chon["anh"]):
-                        try: os.remove(gd_chon["anh"])
-                        except: pass
-                        
-                    st.session_state.data["lich_su"].pop(selected_idx)
-                    luu_du_lieu()
-                    st.success("Đã xóa giao dịch thành công trên Google Sheets!")
-                    st.rerun()
+                if "confirm_del_ls" not in st.session_state:
+                    st.session_state.confirm_del_ls = False
+                
+                if not st.session_state.confirm_del_ls:
+                    if st.button("🗑️ XÓA dòng giao dịch này", type="secondary", use_container_width=True):
+                        st.session_state.confirm_del_ls = True
+                        st.rerun()
+                else:
+                    st.error("❓ Bạn có chắc muốn XÓA vĩnh viễn?")
+                    c_del1, c_del2 = st.columns(2)
+                    with c_del1:
+                        if st.button("👍 Có, Xóa dòng", type="primary", use_container_width=True):
+                            vi_t = gd_chon["vi_to"]
+                            vi_n = gd_chon["vi_nho"]
+                            loai_gd = gd_chon["loai"]
+                            
+                            if vi_t in st.session_state.data["vi_tien"] and vi_n in st.session_state.data["vi_tien"][vi_t]:
+                                if loai_gd == "NẠP":
+                                    st.session_state.data["vi_tien"][vi_t][vi_n] -= gd_chon["so_tien"]
+                                elif loai_gd == "CHI":
+                                    st.session_state.data["vi_tien"][vi_t][vi_n] += gd_chon["so_tien"]
+                            
+                            if gd_chon.get("anh") and os.path.exists(gd_chon["anh"]):
+                                try: os.remove(gd_chon["anh"])
+                                except: pass
+                                
+                            st.session_state.data["lich_su"].pop(selected_idx)
+                            luu_du_lieu()
+                            st.success("Đã xóa giao dịch thành công trên Google Sheets!")
+                            st.session_state.confirm_del_ls = False
+                            st.rerun()
+                    with c_del2:
+                        if st.button("👎 Không, Giữ lại", type="secondary", use_container_width=True):
+                            st.session_state.confirm_del_ls = False
+                            st.rerun()
     else:
         st.info("Chưa có lịch sử giao dịch.")
 
@@ -244,23 +276,39 @@ with tab2:
     mo_ta_nap = st.text_input("Mục đích nạp:", value="Khởi tạo/Nạp thêm").strip()
     anh_nap = st.file_uploader("Chọn ảnh bằng chứng nạp (nếu có):", type=["png", "jpg", "jpeg"], key="anh_nap")
 
-    if st.button("🚀 NẠP TIỀN / LƯU VÍ", type="primary"):
-        if not ten_vi_to or not ten_vi_nho:
-            st.error("Vui lòng nhập đủ Tên Ví To và Tên Ví Nhỏ!")
-        else:
-            if ten_vi_to not in st.session_state.data["vi_tien"]:
-                st.session_state.data["vi_tien"][ten_vi_to] = {}
-            if ten_vi_nho in st.session_state.data["vi_tien"][ten_vi_to]:
-                st.session_state.data["vi_tien"][ten_vi_to][ten_vi_nho] += tien_ban_dau
-            else:
-                st.session_state.data["vi_tien"][ten_vi_to][ten_vi_nho] = tien_ban_dau
+    if "confirm_nap" not in st.session_state:
+        st.session_state.confirm_nap = False
 
-            if tien_ban_dau > 0:
-                ghi_lich_su("NẠP", ten_vi_to, ten_vi_nho, tien_ban_dau, mo_ta_nap, anh_nap)
-            
-            luu_du_lieu()
-            st.success(f"Đã nạp thành công {tien_ban_dau:,} đ và đồng bộ lên Google Sheets!")
-            st.rerun()
+    if not st.session_state.confirm_nap:
+        if st.button("🚀 NẠP TIỀN / LƯU VÍ", type="primary"):
+            if not ten_vi_to or not ten_vi_nho:
+                st.error("Vui lòng nhập đủ Tên Ví To và Tên Ví Nhỏ!")
+            else:
+                st.session_state.confirm_nap = True
+                st.rerun()
+    else:
+        st.warning(f"❓ Bạn có chắc chắn muốn NẠP {tien_ban_dau:,} đ vào ví [{ten_vi_to} ➔ {ten_vi_nho}]?")
+        col_c1, col_c2 = st.columns(2)
+        with col_c1:
+            if st.button("👍 Có, Xác nhận nạp", type="primary", use_container_width=True):
+                if ten_vi_to not in st.session_state.data["vi_tien"]:
+                    st.session_state.data["vi_tien"][ten_vi_to] = {}
+                if ten_vi_nho in st.session_state.data["vi_tien"][ten_vi_to]:
+                    st.session_state.data["vi_tien"][ten_vi_to][ten_vi_nho] += tien_ban_dau
+                else:
+                    st.session_state.data["vi_tien"][ten_vi_to][ten_vi_nho] = tien_ban_dau
+
+                if tien_ban_dau > 0:
+                    ghi_lich_su("NẠP", ten_vi_to, ten_vi_nho, tien_ban_dau, mo_ta_nap, anh_nap)
+                
+                luu_du_lieu()
+                st.success(f"Đã nạp thành công {tien_ban_dau:,} đ và đồng bộ lên Google Sheets!")
+                st.session_state.confirm_nap = False
+                st.rerun()
+        with col_c2:
+            if st.button("👎 Không, Hủy bỏ", type="secondary", use_container_width=True):
+                st.session_state.confirm_nap = False
+                st.rerun()
 
 # TAB 3: GHI NHẬN CHI TIÊU
 with tab3:
@@ -278,20 +326,37 @@ with tab3:
         so_tien_chi = st.number_input("Số tiền chi (VNĐ):", min_value=0, step=10000, value=0)
         anh_chi = st.file_uploader("Chọn ảnh hóa đơn chi (nếu có):", type=["png", "jpg", "jpeg"], key="anh_chi")
 
-        if st.button("🔥 XÁC NHẬN CHI TIÊU", type="primary"):
-            if not mo_ta_chi:
-                st.error("Bạn phải điền mục đích chi tiêu!")
-            elif so_tien_chi <= 0:
-                st.error("Số tiền chi phải lớn hơn 0!")
-            else:
-                vi_to, vi_nho = lua_chon_vi.split(" ➔ ")
-                if st.session_state.data["vi_tien"][vi_to][vi_nho] < so_tien_chi:
-                    st.error(f"Ví '{vi_nho}' không đủ số dư để chi!")
+        if "confirm_chi" not in st.session_state:
+            st.session_state.confirm_chi = False
+
+        if not st.session_state.confirm_chi:
+            if st.button("🔥 XÁC NHẬN CHI TIÊU", type="primary"):
+                if not mo_ta_chi:
+                    st.error("Bạn phải điền mục đích chi tiêu!")
+                elif so_tien_chi <= 0:
+                    st.error("Số tiền chi phải lớn hơn 0!")
                 else:
+                    vi_to, vi_nho = lua_chon_vi.split(" ➔ ")
+                    if st.session_state.data["vi_tien"][vi_to][vi_nho] < so_tien_chi:
+                        st.error(f"Ví '{vi_nho}' không đủ số dư để chi!")
+                    else:
+                        st.session_state.confirm_chi = True
+                        st.rerun()
+        else:
+            st.warning(f"❓ Bạn có chắc chắn muốn CHI {so_tien_chi:,} đ từ ví [{lua_chon_vi}]?")
+            col_ch1, col_ch2 = st.columns(2)
+            with col_ch1:
+                if st.button("👍 Có, Xác nhận chi", type="primary", use_container_width=True):
+                    vi_to, vi_nho = lua_chon_vi.split(" ➔ ")
                     st.session_state.data["vi_tien"][vi_to][vi_nho] -= so_tien_chi
                     ghi_lich_su("CHI", vi_to, vi_nho, so_tien_chi, mo_ta_chi, anh_chi)
                     luu_du_lieu()
                     st.success(f"Đã ghi nhận chi {so_tien_chi:,} đ và cập nhật lên Google Sheets!")
+                    st.session_state.confirm_chi = False
+                    st.rerun()
+            with col_ch2:
+                if st.button("👎 Không, Hủy bỏ", type="secondary", use_container_width=True):
+                    st.session_state.confirm_chi = False
                     st.rerun()
 
 # TAB 4: QUẢN LÝ VÍ (ĐỔI TÊN / XÓA)
@@ -311,34 +376,69 @@ with tab4:
         col1, col2 = st.columns(2)
         with col1:
             ten_moi = st.text_input("Nhập tên mới nếu muốn sửa tên:").strip()
-            if st.button("✏️ Đổi Tên"):
-                if ten_moi:
-                    if vi_ql.startswith("[Ví To]"):
-                        ten_cu = vi_ql.replace("[Ví To] ", "")
-                        if ten_moi in st.session_state.data["vi_tien"]:
-                            st.error("Tên Ví To đã tồn tại!")
-                        else:
-                            st.session_state.data["vi_tien"][ten_moi] = st.session_state.data["vi_tien"].pop(ten_cu)
-                    elif vi_ql.startswith("[Ví Nhỏ]"):
-                        v_to, v_nho_cu = vi_ql.replace("[Ví Nhỏ] ", "").split(" ➔ ")
-                        if ten_moi in st.session_state.data["vi_tien"][v_to]:
-                            st.error("Tên Ví Nhỏ đã tồn tại!")
-                        else:
-                            st.session_state.data["vi_tien"][v_to][ten_moi] = st.session_state.data["vi_tien"][v_to].pop(v_nho_cu)
-                    luu_du_lieu()
-                    st.success("Đổi tên ví thành công!")
-                    st.rerun()
+            
+            if "confirm_rename_vi" not in st.session_state:
+                st.session_state.confirm_rename_vi = False
+                
+            if not st.session_state.confirm_rename_vi:
+                if st.button("✏️ Đổi Tên"):
+                    if not ten_moi:
+                        st.error("Vui lòng nhập tên mới trước khi bấm đổi!")
+                    else:
+                        st.session_state.confirm_rename_vi = True
+                        st.rerun()
+            else:
+                st.warning(f"❓ Đổi tên sang '{ten_moi}'?")
+                c_rn1, c_rn2 = st.columns(2)
+                with c_rn1:
+                    if st.button("👍 Có, Đổi tên", type="primary", use_container_width=True):
+                        if vi_ql.startswith("[Ví To]"):
+                            ten_cu = vi_ql.replace("[Ví To] ", "")
+                            if ten_moi in st.session_state.data["vi_tien"]:
+                                st.error("Tên Ví To đã tồn tại!")
+                            else:
+                                st.session_state.data["vi_tien"][ten_moi] = st.session_state.data["vi_tien"].pop(ten_cu)
+                        elif vi_ql.startswith("[Ví Nhỏ]"):
+                            v_to, v_nho_cu = vi_ql.replace("[Ví Nhỏ] ", "").split(" ➔ ")
+                            if ten_moi in st.session_state.data["vi_tien"][v_to]:
+                                st.error("Tên Ví Nhỏ đã tồn tại!")
+                            else:
+                                st.session_state.data["vi_tien"][v_to][ten_moi] = st.session_state.data["vi_tien"][v_to].pop(v_nho_cu)
+                        luu_du_lieu()
+                        st.success("Đổi tên ví thành công!")
+                        st.session_state.confirm_rename_vi = False
+                        st.rerun()
+                with c_rn2:
+                    if st.button("👎 Không", type="secondary", use_container_width=True):
+                        st.session_state.confirm_rename_vi = False
+                        st.rerun()
         
         with col2:
             st.write("Hành động nguy hiểm:")
-            if st.button("❌ XÓA VÍ NÀY", type="secondary"):
-                if vi_ql.startswith("[Ví To]"):
-                    del st.session_state.data["vi_tien"][vi_ql.replace("[Ví To] ", "")]
-                elif vi_ql.startswith("[Ví Nhỏ]"):
-                    v_to, v_nho = vi_ql.replace("[Ví Nhỏ] ", "").split(" ➔ ")
-                    del st.session_state.data["vi_tien"][v_to][v_nho]
-                    if not st.session_state.data["vi_tien"][v_to]:
-                        del st.session_state.data["vi_tien"][v_to]
-                luu_du_lieu()
-                st.success("Đã xóa ví thành công trên hệ thống và Google Sheets!")
-                st.rerun()
+            if "confirm_xoa_vi" not in st.session_state:
+                st.session_state.confirm_xoa_vi = False
+                
+            if not st.session_state.confirm_xoa_vi:
+                if st.button("❌ XÓA VÍ NÀY", type="secondary"):
+                    st.session_state.confirm_xoa_vi = True
+                    st.rerun()
+            else:
+                st.error("❓ Bạn có CHẮC CHẮN muốn XÓA ví này?")
+                c_xvi1, c_xvi2 = st.columns(2)
+                with c_xvi1:
+                    if st.button("👍 Có, Xóa hẳn", type="primary", use_container_width=True):
+                        if vi_ql.startswith("[Ví To]"):
+                            del st.session_state.data["vi_tien"][vi_ql.replace("[Ví To] ", "")]
+                        elif vi_ql.startswith("[Ví Nhỏ]"):
+                            v_to, v_nho = vi_ql.replace("[Ví Nhỏ] ", "").split(" ➔ ")
+                            del st.session_state.data["vi_tien"][v_to][v_nho]
+                            if not st.session_state.data["vi_tien"][v_to]:
+                                del st.session_state.data["vi_tien"][v_to]
+                        luu_du_lieu()
+                        st.success("Đã xóa ví thành công trên hệ thống và Google Sheets!")
+                        st.session_state.confirm_xoa_vi = False
+                        st.rerun()
+                with c_xvi2:
+                    if st.button("👎 Không, Giữ lại", type="secondary", use_container_width=True):
+                        st.session_state.confirm_xoa_vi = False
+                        st.rerun()
