@@ -53,7 +53,7 @@ def luu_du_lieu():
                 vi_tien_rows.append([vt, vn, sd])
                 
         # Thêm cột "Số Dư Lúc Đó" vào cấu trúc bảng lịch sử trên Google Sheets
-        lich_su_rows = [["Thời Gian", "Loại", "Ví Lớn", "Ví Nhỏ", "Số Tiền", "Mô Tả", "Ảnh", "Số Dư Lúc Đó"]]
+        lich_su_rows = [["Thời Gian", "Loại", "Ví Lớn", "Ví Nhỏ", "Số Tiền", "Mô Tả", "Ảnh", "Số Dư"]]
         for x in lich_su:
             lich_su_rows.append([
                 x.get("thoi_gian", ""),
