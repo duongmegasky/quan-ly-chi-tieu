@@ -26,7 +26,6 @@ def chuan_hoa_thoi_gian(chuoi_tg):
         return "Không rõ"
     chuoi_str = str(chuoi_tg).strip()
     if "T" in chuoi_str:
-        # Thay thế chữ T bằng dấu cách, cắt bỏ phần mili giây .000 và ký tự Z
         chuoi_str = chuoi_str.replace("T", " ").split(".")[0].replace("Z", "")
     return chuoi_str
 
@@ -119,7 +118,6 @@ def tai_du_lieu():
         try:
             with open(FILE_SAVE, "r", encoding="utf-8") as f:
                 st.session_state.data = json.load(f)
-                # Chuẩn hóa lại toàn bộ thời gian trong file cục bộ nếu có lỗi cũ
                 for x in st.session_state.data.get("lich_su", []):
                     x["thoi_gian"] = chuan_hoa_thoi_gian(x.get("thoi_gian", ""))
                 return True
@@ -129,7 +127,7 @@ def tai_du_lieu():
         st.session_state.data = mac_dinh
     return False
 
-# --- HÀM TÍNH LẠI TOÀN BỘ SỐ DƯ & SỐ DƯ THỜI ĐIỂM ĐÓ ---
+# --- HÀM TÍNH LẠI TOÀN BỘ SỐ DƯ ---
 def recalculate_balances():
     for vl in st.session_state.data["vi_tien"]:
         for vn in st.session_state.data["vi_tien"][vl]:
@@ -286,7 +284,7 @@ elif menu == "Thêm ví & Nạp tiền":
                     st.success("Đã cập nhật cấu trúc ví mới lên Google Sheets!")
                     st.rerun()
 
-# --- CHỨC NĂNG 3: LỊCH SỬ GIAO DỊCH (TÍCH HỢP BỘ LỌC NGÀY THÁNG) ---
+# --- CHỨC NĂNG 3: LỊCH SỬ GIAO DỊCH (BỘ LỌC THỜI GIAN & VÍ ĐỘNG) ---
 elif menu == "Lịch sử giao dịch":
     st.header("📊 Nhật Ký Biến Động Số Dư")
     
@@ -340,27 +338,44 @@ elif menu == "Lịch sử giao dịch":
     if not lich_su:
         st.write("Chưa có giao dịch nào được ghi nhận.")
     else:
-        # --- BỘ LỌC MỐC THỜI GIAN MỚI THÊM ---
-        col_f1, col_f2 = st.columns(2)
+        # --- BỘ LỌC PHÁT TRIỂN MỚI: 4 CỘT SONG SONG ---
+        col_f1, col_f2, col_f3, col_f4 = st.columns(4)
         with col_f1:
             ngay_bat_dau = st.date_input("Từ ngày:", value=datetime.now(MUI_GIO_VN).date() - timedelta(days=30))
         with col_f2:
             ngay_ket_thuc = st.date_input("Đến ngày:", value=datetime.now(MUI_GIO_VN).date())
+        with col_f3:
+            danh_sach_vi_to = ["Tất cả"] + list(vi_tien.keys())
+            vi_to_loc = st.selectbox("Lọc theo Ví Lớn:", danh_sach_vi_to)
+        with col_f4:
+            if vi_to_loc == "Tất cả":
+                danh_sach_vi_nho = ["Tất cả"]
+            else:
+                danh_sach_vi_nho = ["Tất cả"] + list(vi_tien[vi_to_loc].keys())
+            vi_nho_loc = st.selectbox("Lọc theo Ví Nhỏ:", danh_sach_vi_nho)
             
-        # Lọc danh sách hiển thị dựa trên mốc thời gian đã chọn
+        # Thực hiện quét lọc kết hợp đa điều kiện
         lich_su_loc = []
         for item in lich_su:
             t_gian_str = chuan_hoa_thoi_gian(item.get("thoi_gian", ""))
-            try:
-                # Trích xuất phần ngày YYYY-MM-DD để đối chiếu
-                ngay_gd = datetime.strptime(t_gian_str.split(" ")[0], "%Y-%m-%d").date()
-                if ngay_bat_dau <= ngay_gd <= ngay_ket_thuc:
+            v_t = item.get("vi_to", "")
+            v_n = item.get("vi_nho", "")
+            
+            # Khớp điều kiện bộ lọc ví trước
+            khop_vi_to = (vi_to_loc == "Tất cả") or (v_t == vi_to_loc)
+            khop_vi_nho = (vi_nho_loc == "Tất cả") or (v_n == vi_nho_loc)
+            
+            if khop_vi_to and khop_vi_nho:
+                try:
+                    ngay_gd = datetime.strptime(t_gian_str.split(" ")[0], "%Y-%m-%d").date()
+                    if ngay_bat_dau <= ngay_gd <= ngay_ket_thuc:
+                        lich_su_loc.append(item)
+                except Exception:
+                    # Giữ lại bản ghi nếu chuỗi thời gian lỗi định dạng ngày để tránh mất dữ liệu hiển thị
                     lich_su_loc.append(item)
-            except Exception:
-                lich_su_loc.append(item) # Dự phòng giữ lại nếu chuỗi lỗi định dạng
-                
+                    
         if not lich_su_loc:
-            st.info("Chưa có giao dịch nào được ghi nhận trong khoảng thời gian này.")
+            st.info("Chưa có giao dịch nào thỏa mãn bộ lọc thời gian và ví đã chọn.")
         else:
             for item in lich_su_loc:
                 loai_gd = item.get("loai", "Chi tiêu")
