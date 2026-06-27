@@ -10,7 +10,7 @@ FILE_SAVE = "dulieu_vi_cloud.json"
 THU_MUC_ANH = "anh_giao_dich"
 
 # DÁN ĐOẠN URL WEB APP GOOGLE APPS SCRIPT CỦA BẠN VÀO ĐÂY:
-URL_CAU_NOI = "https://script.google.com/macros/s/AKfycbx3dXuQdWHLEH_BTogMnF6O-H0x-w4QHHakUgZevcQYT2DyDS8jHhzanZnaCDWf3IwWeg/exec"
+URL_CAU_NOI = "https://script.google.com/macros/s/AKfycbx3dXuQdWLEH_BTogMnF6O-H0x-w4QHHakUgZevcQYT2DyDS8jHhzanZnaCDWf3IwWeg/exec"
 
 st.set_page_config(page_title="Quản Lý Chi Tiêu Đa Nền Tảng", page_icon="💰", layout="wide")
 
@@ -52,16 +52,18 @@ def luu_du_lieu():
             for vn, sd in cvn.items():
                 vi_tien_rows.append([vt, vn, sd])
                 
-        lich_su_rows = [["Thời Gian", "Loại", "Ví Lớn", "Ví Nhỏ", "Số Tiền", "Mô Tả", "Ảnh"]]
+        # Thêm cột "Số Dư Lúc Đó" vào cấu trúc bảng lịch sử trên Google Sheets
+        lich_su_rows = [["Thời Gian", "Loại", "Ví Lớn", "Ví Nhỏ", "Số Tiền", "Mô Tả", "Ảnh", "Số Dư Lúc Đó"]]
         for x in lich_su:
             lich_su_rows.append([
                 x.get("thoi_gian", ""),
                 x.get("loai", ""),
-                x.get("vi_to", x.get("vi_to", "")),
+                x.get("vi_to", ""),
                 x.get("vi_nho", ""),
                 x.get("so_tien", 0),
                 x.get("mo_ta", ""),
-                x.get("anh", "")
+                x.get("anh", ""),
+                x.get("so_du_luc_do", 0)
             ])
             
         res1 = requests.post(URL_CAU_NOI, json={"action": "update_all", "sheetName": "vi_tien", "rows": vi_tien_rows}, timeout=10)
@@ -73,7 +75,7 @@ def luu_du_lieu():
 
 # --- HÀM TẢI DỮ LIỆU TỪ GOOGLE SHEETS ---
 def tai_du_lieu():
-    mac_dinh = {"vi_tien": {"Ví Cá Nhân": {"Tiền Mặt": 0, "Thẻ Ngân Hàng": 0}}, "lich_su": []}
+    mac_dinh = {"vi_tien": {"ví của Dương": {"tiền sinh hoạt": 0}}, "lich_su": []}
     try:
         res = requests.get(URL_CAU_NOI, timeout=8)
         if res.status_code == 200 and "html" not in res.text.lower():
@@ -93,7 +95,8 @@ def tai_du_lieu():
                         new_lich_su.append({
                             "thoi_gian": row[0], "loai": row[1], "vi_to": row[2],
                             "vi_nho": row[3], "so_tien": float(row[4]) if row[4] else 0,
-                            "mo_ta": row[5], "anh": row[6] if len(row) > 6 else ""
+                            "mo_ta": row[5], "anh": row[6] if len(row) > 6 else "",
+                            "so_du_luc_do": float(row[7]) if len(row) > 7 and row[7] != "" else 0.0
                         })
             if new_vi_tien:
                 st.session_state.data = {"vi_tien": new_vi_tien, "lich_su": new_lich_su}
@@ -112,15 +115,14 @@ def tai_du_lieu():
         st.session_state.data = mac_dinh
     return False
 
-# --- HÀM TÍNH LẠI TOÀN BỘ SỐ DƯ TỪ LỊCH SỬ ---
+# --- HÀM TÍNH LẠI TOÀN BỘ SỐ DƯ & SỐ DƯ THỜI ĐIỂM ĐÓ ---
 def recalculate_balances():
-    """Hàm tự động quét lại toàn bộ lịch sử giao dịch để tính toán chính xác số dư thực tế"""
-    # Khởi tạo lại tất cả ví về 0 trước khi tính
+    """Quét lũy tiến toàn bộ lịch sử để tính số dư hiện tại và số dư ngay tại thời điểm xảy ra GD"""
     for vl in st.session_state.data["vi_tien"]:
         for vn in st.session_state.data["vi_tien"][vl]:
             st.session_state.data["vi_tien"][vl][vn] = 0.0
             
-    # Duyệt ngược từ cũ nhất đến mới nhất để cộng trừ lũy tiến
+    # Duyệt ngược từ dòng lịch sử cũ nhất tiến dần tới mới nhất
     for item in reversed(st.session_state.data["lich_su"]):
         vt = item.get("vi_to", "Không rõ")
         vn = item.get("vi_nho", "Không rõ")
@@ -132,18 +134,49 @@ def recalculate_balances():
                 st.session_state.data["vi_tien"][vt][vn] += so_tien
             else:
                 st.session_state.data["vi_tien"][vt][vn] -= so_tien
+            # Lưu lại trạng thái số dư ví con ngay sau khi khớp lệnh này
+            item["so_du_luc_do"] = st.session_state.data["vi_tien"][vt][vn]
 
 if "data" not in st.session_state:
     tai_du_lieu()
+    recalculate_balances()
 
 vi_tien = st.session_state.data["vi_tien"]
 lich_su = st.session_state.data["lich_su"]
 
-st.title("💰 Hệ Thống Quản Lý Chi Tiêu Đa Nền Tảng")
-menu = st.sidebar.radio("Chức năng hệ thống", ["Ghi nhận khoản chi", "Thêm ví & Nạp tiền", "Lịch sử giao dịch", "Cấu hình Hệ thống"])
+# --- GIAO DIỆN ĐIỀU HƯỚNG ---
+st.title(" 💸 Hệ Thống Quản Lý Chi Tiêu Đa Nền Tảng")
+menu = st.sidebar.radio(
+    "Chức năng hệ thống", 
+    ["Xem số dư các ví", "Ghi nhận khoản chi", "Thêm ví & Nạp tiền", "Lịch sử giao dịch", "Cấu hình Hệ thống"]
+)
+
+# --- MỤC MỚI BỔ SUNG: XEM SỐ DƯ TẤT CẢ CÁC VÍ ---
+if menu == "Xem số dư các ví":
+    st.header("📊 Bảng Kê Số Dư Tài Khoản")
+    
+    # Tính tổng tài sản thực tế trong toàn hệ thống
+    tong_tai_san = sum(sum(cvn.values()) for cvn in vi_tien.values())
+    st.metric(label="💰 TỔNG TÀI SẢN (Tất cả các ví cộng lại)", value=f"{tong_tai_san:,.0f} VNĐ")
+    st.markdown("---")
+    
+    # Hiển thị từng Ví Lớn và cấu trúc Ví Nhỏ bên trong
+    for vl, cvn in vi_tien.items():
+        tong_vi_lon = sum(cvn.values())  # Tính tổng ví lớn = các ví con cộng lại
+        
+        st.subheader(f"📁 {vl} (Tổng: {tong_vi_lon:,.0f} VNĐ)")
+        if not cvn:
+            st.info("Ví lớn này chưa có ví con nào.")
+        else:
+            # Tạo các cột ngang hiển thị danh sách ví con tương ứng
+            cols = st.columns(len(cvn) if len(cvn) <= 4 else 4)
+            for idx, (vn, sd) in enumerate(cvn.items()):
+                with cols[idx % len(cols)]:
+                    st.metric(label=f"📂 {vn}", value=f"{sd:,.0f} VNĐ")
+        st.markdown("<br>", unsafe_allow_html=True)
 
 # --- CHỨC NĂNG 1: GHI NHẬN KHOẢN CHI ---
-if menu == "Ghi nhận khoản chi":
+elif menu == "Ghi nhận khoản chi":
     st.header("🛒 Ghi Nhận Khoản Chi Mới")
     col1, col2 = st.columns(2)
     with col1:
@@ -151,7 +184,7 @@ if menu == "Ghi nhận khoản chi":
         vi_nho_sel = st.selectbox("Chọn Ví Nhỏ:", list(vi_tien[vi_to_sel].keys()) if vi_to_sel else [])
         so_du_hien_tai = vi_tien[vi_to_sel][vi_nho_sel] if vi_to_sel and vi_nho_sel else 0
         st.info(f"💳 Số dư hiện tại của ví này: **{so_du_hien_tai:,.0f} VNĐ**")
-        anh_chi_file = st.file_uploader("📷 Chụp hoặc tải ảnh hóa đơn chi (PNG, JPG):", type=["png", "jpg", "jpeg"], key="upload_chi")
+        anh_chi_file = st.file_uploader("📷 Chụp hoặc tải ảnh hóa đơn chi:", type=["png", "jpg", "jpeg"], key="upload_chi")
     with col2:
         mo_ta = st.text_input("Nội dung / Mô tả khoản chi:")
         so_tien = st.number_input("Số tiền chi (VNĐ):", min_value=0, step=1000, value=0)
@@ -163,17 +196,16 @@ if menu == "Ghi nhận khoản chi":
             st.error("Số dư tài khoản không đủ để thực hiện giao dịch này!")
         else:
             duong_dan_anh = xu_ly_va_luu_anh(anh_chi_file, "CHI")
-            st.session_state.data["vi_tien"][vi_to_sel][vi_nho_sel] -= so_tien
             st.session_state.data["lich_su"].insert(0, {
                 "thoi_gian": datetime.now(MUI_GIO_VN).strftime("%Y-%m-%d %H:%M:%S"),
                 "loai": "Chi tiêu", "vi_to": vi_to_sel, "vi_nho": vi_nho_sel,
                 "so_tien": so_tien, "mo_ta": mo_ta, "anh": duong_dan_anh
             })
+            recalculate_balances()  # Cập nhật số dư và tính số dư thời điểm đó
             if luu_du_lieu():
                 st.toast(f"🎉 Đã ghi nhận chi {so_tien:,.0f} VNĐ!", icon="✅")
-                st.success(f"🎉 Đã ghi nhận thành công khoản chi cho: '{mo_ta}'. Hệ thống đã đồng bộ lên Cloud!")
-            else:
-                st.warning("Đã ghi nhận cục bộ nhưng lỗi đồng bộ Cloud.")
+                st.success(f"🎉 Đã ghi nhận thành công khoản chi cho: '{mo_ta}'. Đã đồng bộ lên Cloud!")
+                st.rerun()
 
 # --- CHỨC NĂNG 2: THÊM VÍ / NẠP TIỀN / XÓA VÍ ---
 elif menu == "Thêm ví & Nạp tiền":
@@ -185,22 +217,21 @@ elif menu == "Thêm ví & Nạp tiền":
         v_nho = st.selectbox("Chọn Ví Nhỏ cần nạp:", list(vi_tien[v_to].keys()) if v_to else [], key="nap_nho")
         st_nap = st.number_input("Số tiền nạp thêm (VNĐ):", min_value=0, step=1000, key="tien_nap")
         mt_nap = st.text_input("Ghi chú nạp tiền:", value="Nạp tiền vào tài khoản", key="note_nap")
-        anh_nap_file = st.file_uploader("📷 Chụp hoặc tải ảnh hóa đơn nạp (PNG, JPG):", type=["png", "jpg", "jpeg"], key="upload_nap")
+        anh_nap_file = st.file_uploader("📷 Chụp hoặc tải ảnh hóa đơn nạp:", type=["png", "jpg", "jpeg"], key="upload_nap")
         
         if st.button("📥 Xác nhận nạp tiền", type="primary"):
             if st_nap > 0:
                 duong_dan_anh = xu_ly_va_luu_anh(anh_nap_file, "NAP")
-                st.session_state.data["vi_tien"][v_to][v_nho] += st_nap
                 st.session_state.data["lich_su"].insert(0, {
                     "thoi_gian": datetime.now(MUI_GIO_VN).strftime("%Y-%m-%d %H:%M:%S"),
                     "loai": "Nạp tiền", "vi_to": v_to, "vi_nho": v_nho,
                     "so_tien": st_nap, "mo_ta": mt_nap, "anh": duong_dan_anh
                 })
+                recalculate_balances()  # Đồng bộ tính toán
                 if luu_du_lieu():
                     st.toast("📥 Nạp tiền thành công và đã đồng bộ!", icon="✅")
                     st.success(f"✅ Đã nạp thành công {st_nap:,.0f} VNĐ vào {v_to} -> {v_nho}!")
-                else:
-                    st.warning("Đã lưu cục bộ nhưng chưa thể đẩy lên Sheets.")
+                    st.rerun()
                 
     with tab2:
         ten_vi_to_moi = st.text_input("Nhập tên Ví Lớn mới (Ví dụ: Ví Tiết Kiệm, Ví Kinh Doanh):")
@@ -210,6 +241,7 @@ elif menu == "Thêm ví & Nạp tiền":
                 if luu_du_lieu():
                     st.toast(f"Đã tạo Ví Lớn: {ten_vi_to_moi}", icon="📁")
                     st.success(f"📁 Đã khởi tạo thành công Ví Lớn: {ten_vi_to_moi}!")
+                    st.rerun()
                 
     with tab3:
         v_to_thuoc = st.selectbox("Chọn Ví Lớn chứa ví nhỏ này:", list(vi_tien.keys()), key="thuoc_to")
@@ -220,6 +252,7 @@ elif menu == "Thêm ví & Nạp tiền":
                 if luu_du_lieu():
                     st.toast(f"Đã tạo Ví Nhỏ: {ten_vi_nho_moi}", icon="📂")
                     st.success(f"📂 Đã tạo thành công Ví Nhỏ trong mục {v_to_thuoc}!")
+                    st.rerun()
 
     with tab4:
         st.subheader("🗑️ Xóa Ví Không Sử Dụng")
@@ -241,27 +274,20 @@ elif menu == "Thêm ví & Nạp tiền":
                     del st.session_state.data["vi_tien"][ten_vi_lon][ten_vi_nho]
                     if not st.session_state.data["vi_tien"][ten_vi_lon]:
                         del st.session_state.data["vi_tien"][ten_vi_lon]
+                recalculate_balances()
                 if luu_du_lieu():
                     st.toast("Đã xóa mục ví thành công!", icon="🗑️")
                     st.success("Đã cập nhật cấu trúc ví mới lên Google Sheets!")
+                    st.rerun()
 
-# --- CHỨC NĂNG 3: LỊCH SỬ GIAO DỊCH & SỬA ĐỔI ---
+# --- CHỨC NĂNG 3: LỊCH SỬ GIAO DỊCH (CÓ SỬA ĐỔI & HIỂN THỊ SỐ DƯ LÚC ĐÓ) ---
 elif menu == "Lịch sử giao dịch":
     st.header("📊 Nhật Ký Biến Động Số Dư")
     
-    st.subheader("Bảng cân đối số dư các ví")
-    for vl, cvn in vi_tien.items():
-        with st.expander(f"📂 {vl}"):
-            for vn, sd in cvn.items():
-                st.write(f"- **{vn}**: {sd:,.0f} VNĐ")
-                
-    st.markdown("---")
     st.subheader("🛠️ Khu Vực Chỉnh Sửa / Xóa Giao Dịch Lỗi")
-    
     if not lich_su:
         st.info("Chưa có giao dịch nào để chỉnh sửa.")
     else:
-        # Tạo danh sách các chuỗi lựa chọn hiển thị cho người dùng chọn bản ghi cần sửa
         danh_sach_chon_sua = []
         for idx, item in enumerate(lich_su):
             danh_sach_chon_sua.append(f"[{idx}] {item.get('thoi_gian','')} | {item.get('loai','')} | {item.get('mo_ta','')[:20]}... | {item.get('so_tien',0):,.0f}đ")
@@ -270,7 +296,6 @@ elif menu == "Lịch sử giao dịch":
         idx_sua = int(chon_ban_ghi.split("]")[0].replace("[", ""))
         item_sua = lich_su[idx_sua]
         
-        # Tạo form nhập liệu chỉnh sửa
         col_s1, col_s2, col_s3 = st.columns(3)
         with col_s1:
             loai_moi = st.selectbox("Sửa Loại GD:", ["Chi tiêu", "Nạp tiền"], index=0 if item_sua.get("loai") == "Chi tiêu" else 1)
@@ -285,25 +310,19 @@ elif menu == "Lịch sử giao dịch":
         col_btn1, col_btn2 = st.columns(2)
         with col_btn1:
             if st.button("💾 CẬP NHẬT THAY ĐỔI", type="primary", use_container_width=True):
-                # Ghi đè thông tin mới vào bản ghi lịch sử
                 st.session_state.data["lich_su"][idx_sua] = {
-                    "thoi_gian": thoi_gian_moi,
-                    "loai": loai_moi,
-                    "vi_to": vi_to_moi,
-                    "vi_nho": vi_nho_moi,
-                    "so_tien": so_tien_moi,
-                    "mo_ta": mo_ta_moi,
-                    "anh": item_sua.get("anh", "")  # Giữ nguyên đường dẫn ảnh cũ
+                    "thoi_gian": thoi_gian_moi, "loai": loai_moi, "vi_to": vi_to_moi,
+                    "vi_nho": vi_nho_moi, "so_tien": so_tien_moi, "mo_ta": mo_ta_moi, "anh": item_sua.get("anh", "")
                 }
-                recalculate_balances() # Tính lại tiền
+                recalculate_balances()
                 if luu_du_lieu():
-                    st.toast("Đã sửa đổi giao dịch và tính lại số dư thành công!", icon="📝")
+                    st.toast("Đã sửa đổi giao dịch và cập nhật lại toàn bộ số dư thời điểm!", icon="📝")
                     st.success("Đã cập nhật thay đổi thành công lên Cloud Sheets!")
                     st.rerun()
         with col_btn2:
             if st.button("🗑️ XÓA HẲN GIAO DỊCH NÀY", type="secondary", use_container_width=True):
-                st.session_state.data["lich_su"].pop(idx_sua) # Xóa dòng này khỏi mảng
-                recalculate_balances() # Tính toán lại số dư các ví từ đầu
+                st.session_state.data["lich_su"].pop(idx_sua)
+                recalculate_balances()
                 if luu_du_lieu():
                     st.toast("Đã xóa giao dịch thành công!", icon="🗑️")
                     st.success("Đã xóa bản ghi giao dịch và đồng bộ tính lại tiền thành công!")
@@ -324,8 +343,10 @@ elif menu == "Lịch sử giao dịch":
             v_n = item.get("vi_nho", "Không rõ")
             s_t = item.get("so_tien", 0)
             m_t = item.get("mo_ta", "")
+            sd_luc_do = item.get("so_du_luc_do", 0)  # Lấy số dư tại thời điểm đó
             
-            st.markdown(f"⏱️ `{t_gian}` | **{v_t} ➔ {v_n}** | <span style='color:{color}'>{sign} {s_t:,.0f} VNĐ</span> | Nội dung: *{m_t}*", unsafe_allow_html=True)
+            # Đã cấu hình thêm hiển thị "(Số dư lúc đó: X VNĐ)"
+            st.markdown(f"⏱️ `{t_gian}` | **{v_t} ➔ {v_n}** | <span style='color:{color}'>{sign} {s_t:,.0f} VNĐ</span> *(Số dư lúc đó: **{sd_luc_do:,.0f}** VNĐ)* | Nội dung: *{m_t}*", unsafe_allow_html=True)
             if item.get("anh") and os.path.exists(item["anh"]):
                 st.image(item["anh"], caption="Ảnh hóa đơn đính kèm", width=150)
 
@@ -346,9 +367,11 @@ elif menu == "Cấu hình Hệ thống":
     with col_b1:
         if st.button("🔄 Tải lại toàn bộ dữ liệu từ Google Sheets", use_container_width=True):
             if tai_du_lieu():
+                recalculate_balances()
                 st.success("Đã nạp lại bộ nhớ từ dữ liệu gốc thành công!")
                 st.rerun()
     with col_b2:
         if st.button("📤 Ép đồng bộ dữ liệu App lên Google Sheets", use_container_width=True):
+            recalculate_balances()
             if luu_du_lieu():
                 st.success("Đã đồng bộ đè dữ liệu lên Google Sheets thành công!")
