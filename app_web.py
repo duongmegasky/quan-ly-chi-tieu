@@ -327,7 +327,7 @@ elif menu == "Thêm ví & Nạp tiền":
                     st.success("Đã cập nhật cấu trúc ví mới lên Google Sheets!")
                     st.rerun()
 
-# --- CHỨC NĂNG 3: LỊCH SỬ GIAO DỊCH (ĐỒNG BỘ CLICK CHỌN & POPUP XÁC NHẬN) ---
+# --- CHỨC NĂNG 3: LỊCH SỬ GIAO DỊCH (TỐI ƯU CLICK DÒNG CHO ĐIỆN THOẠI) ---
 elif menu == "Lịch sử giao dịch":
     st.header("📊 Nhật Ký Biến Động Số Dư")
     
@@ -340,18 +340,16 @@ elif menu == "Lịch sử giao dịch":
             tg_chuan = chuan_hoa_thoi_gian(item.get('thoi_gian',''))
             danh_sach_chon_sua.append(f"[{idx}] {tg_chuan} | {item.get('loai','')} | {item.get('mo_ta','')[:20]}... | {item.get('so_tien',0):,.0f}đ")
             
-        # Kiểm tra giới hạn chỉ mục đề phòng dữ liệu bị xóa giảm bớt độ dài
         if st.session_state.index_can_sua >= len(lich_su):
             st.session_state.index_can_sua = 0
             
-        # Selectbox liên kết trực tiếp tới index_can_sua trong session_state
         chon_ban_ghi = st.selectbox(
             "Chọn dòng giao dịch bạn muốn sửa đổi hoặc xóa:", 
             danh_sach_chon_sua,
             index=st.session_state.index_can_sua
         )
         idx_sua = int(chon_ban_ghi.split("]")[0].replace("[", ""))
-        st.session_state.index_can_sua = idx_sua # Đồng bộ lại nếu người dùng đổi bằng tay dropdown
+        st.session_state.index_can_sua = idx_sua
         
         item_sua = lich_su[idx_sua]
         
@@ -370,23 +368,16 @@ elif menu == "Lịch sử giao dịch":
         with col_btn1:
             if st.button("💾 CẬP NHẬT THAY ĐỔI", type="primary", use_container_width=True):
                 du_lieu_moi = {
-                    "thoi_gian": chuan_hoa_thoi_gian(thoi_gian_moi), 
-                    "loai": loai_moi, 
-                    "vi_to": vi_to_moi,
-                    "vi_nho": vi_nho_moi, 
-                    "so_tien": so_tien_moi, 
-                    "mo_ta": mo_ta_moi, 
-                    "anh": item_sua.get("anh", "")
+                    "thoi_gian": chuan_hoa_thoi_gian(thoi_gian_moi), "loai": loai_moi, "vi_to": vi_to_moi,
+                    "vi_nho": vi_nho_moi, "so_tien": so_tien_moi, "mo_ta": mo_ta_moi, "anh": item_sua.get("anh", "")
                 }
-                # Gọi cửa sổ phụ xác nhận thay đổi
                 xac_nhan_cap_nhat_dialog(idx_sua, du_lieu_moi)
         with col_btn2:
             if st.button("🗑️ XÓA HẲN GIAO DỊCH NÀY", type="secondary", use_container_width=True):
-                # Gọi cửa sổ phụ xác nhận xóa vĩnh viễn
                 xac_nhan_xoa_dialog(idx_sua, item_sua)
 
     st.markdown("---")
-    st.subheader("📋 Dòng lịch sử giao dịch chi tiết")
+    st.subheader("📋 Dòng lịch sử giao dịch chi tiết (Chạm vào dòng để Sửa/Xóa)")
     if not lich_su:
         st.write("Chưa có giao dịch nào được ghi nhận.")
     else:
@@ -406,7 +397,7 @@ elif menu == "Lịch sử giao dịch":
                 danh_sach_vi_nho = ["Tất cả"] + list(vi_tien[vi_to_loc].keys())
             vi_nho_loc = st.selectbox("Lọc theo Ví Nhỏ:", danh_sach_vi_nho)
             
-        # Tiến hành lọc và lưu vết kèm chỉ mục gốc (idx gốc trong mảng lich_su)
+        # Tiến hành lọc dữ liệu
         lich_su_loc = []
         for idx_goc, item in enumerate(lich_su):
             v_t = item.get("vi_to", "")
@@ -427,9 +418,9 @@ elif menu == "Lịch sử giao dịch":
         if not lich_su_loc:
             st.info("Chưa có giao dịch nào thỏa mãn bộ lọc thời gian và ví đã chọn.")
         else:
+            # Hiện danh sách: Tích hợp nút bấm full-width gọn gàng, sạch sẽ trên Mobile
             for idx_goc, item in lich_su_loc:
                 loai_gd = item.get("loai", "Chi tiêu")
-                color = "green" if loai_gd == "Nạp tiền" else "red"
                 sign = "+" if loai_gd == "Nạp tiền" else "-"
                 
                 t_gian = chuan_hoa_thoi_gian(item.get("thoi_gian", "Không rõ"))
@@ -439,17 +430,18 @@ elif menu == "Lịch sử giao dịch":
                 m_t = item.get("mo_ta", "")
                 sd_luc_do = item.get("so_du_luc_do", 0)
                 
-                # Tạo hàng gồm nút bấm chọn và nội dung hiển thị dòng lịch sử
-                col_click, col_content = st.columns([0.08, 0.92])
-                with col_click:
-                    # Khi nhấn vào nút này, gán index gốc lên trường chỉnh sửa phía trên và reload trang
-                    if st.button("✏️ Chọn", key=f"btn_choose_{idx_goc}", use_container_width=True):
-                        st.session_state.index_can_sua = idx_goc
-                        st.rerun()
-                with col_content:
-                    st.markdown(f"⏱️ `{t_gian}` | **{v_t} ➔ {v_n}** | <span style='color:{color}'>{sign} {s_t:,.0f} VNĐ</span> *(Số dư lúc đó: **{sd_luc_do:,.0f}** VNĐ)* | Nội dung: *{m_t}*", unsafe_allow_html=True)
-                    if item.get("anh") and os.path.exists(item["anh"]):
-                        st.image(item["anh"], caption="Ảnh hóa đơn đính kèm", width=150)
+                # Tạo chuỗi text ngắn gọn, trực quan thể hiện rõ dòng tiền
+                label_dong_lich_su = f"⏱️ {t_gian} | {v_t} ➔ {v_n} | {sign}{s_t:,.0f}đ (Số dư: {sd_luc_do:,.0f}đ) | Mô tả: {m_t}"
+                
+                # Toàn bộ dòng biến thành nút bấm lớn giúp ngón tay dễ dàng chạm trúng trên điện thoại
+                if st.button(label_dong_lich_su, key=f"btn_row_{idx_goc}", use_container_width=True):
+                    st.session_state.index_can_sua = idx_goc
+                    st.toast(f"🎯 Đã chọn giao dịch: {m_t[:15]}...", icon="✏️")
+                    st.rerun()
+                
+                # Hiển thị ảnh nếu có bản ghi ngay dưới nút bấm dòng đó
+                if item.get("anh") and os.path.exists(item["anh"]):
+                    st.image(item["anh"], caption="Ảnh hóa đơn đính kèm", width=120)
 
 # --- CHỨC NĂNG 4: CẤU HÌNH HỆ THỐNG & ĐỒNG BỘ ---
 elif menu == "Cấu hình Hệ thống":
