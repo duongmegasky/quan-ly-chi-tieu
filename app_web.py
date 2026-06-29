@@ -11,7 +11,7 @@ FILE_SAVE = "dulieu_vi_cloud.json"
 THU_MUC_ANH = "anh_giao_dich"
 
 # DÁN ĐOẠN URL WEB APP GOOGLE APPS SCRIPT CỦA BẠN VÀO ĐÂY:
-URL_CAU_NOI = "https://script.google.com/macros/s/AKfycbx3dXuQdWLEH_BTogMnF6O-H0x-w4QHHakUgZevcQYT2DyDS8jHhzanZnaCDWf3IwWeg/exec"
+URL_CAU_NOI = "https://script.google.com/macros/s/AKfycbx3dXuQdWHLEH_BTogMnF6O-H0x-w4QHHakUgZevcQYT2DyDS8jHhzanZnaCDWf3IwWeg/exec"
 
 st.set_page_config(page_title="Quản Lý Chi Tiêu Đa Nền Tảng", page_icon="💰", layout="wide")
 
