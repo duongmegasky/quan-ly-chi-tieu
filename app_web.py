@@ -211,8 +211,9 @@ menu = st.sidebar.radio(
 if menu == "Xem số dư các ví":
     st.header("📊 Bảng Kê Số Dư Tài Khoản")
     
-    # TÍNH NĂNG MỚI: LỰA CHỌN KHOẢNG THỜI GIAN ĐỂ THỐNG KÊ CHI TIÊU/NẠP VÀO
-    st.markdown("### 🔍 Lọc thống kê thu chi theo khoảng thời gian")
+    # BỘ LỌC KHOẢNG THỜI GIAN
+    st.markdown("### 🔍 Lọc thống kê dòng tiền thực tế theo khoảng thời gian")
+    st.caption("*(Hệ thống tự động bỏ qua các giao dịch chuyển tiền nội bộ qua lại giữa các ví để tránh tăng ảo số liệu)*")
     col_d1, col_d2 = st.columns(2)
     with col_d1:
         ngay_dau = st.date_input("Từ ngày:", value=datetime.now(MUI_GIO_VN).date() - timedelta(days=30), key="view_ngay_dau")
@@ -229,19 +230,23 @@ if menu == "Xem số dư các ví":
             if ngay_dau <= ngay_gd <= ngay_cuoi:
                 loai_gd = item.get("loai", "")
                 so_tien_gd = float(item.get("so_tien", 0))
-                if loai_gd == "Nạp tiền":
+                mo_ta_gd = item.get("mo_ta", "")
+                
+                # CHỈ TÍNH TIỀN NẠP THỰC TẾ (Loại trừ các dòng có chữ [NHẬN VÍ] từ chuyển tiền nội bộ)
+                if loai_gd == "Nạp tiền" and "[NHẬN VÍ]" not in mo_ta_gd:
                     tong_nap_khoang_tg += so_tien_gd
-                elif loai_gd in ["Chi tiêu", "Chuyển đi"]:
+                # CHỈ TÍNH TIỀN TIÊU THỰC TẾ THỰC SỰ MẤT ĐI (Loại trừ loại "Chuyển đi")
+                elif loai_gd == "Chi tiêu":
                     tong_chi_khoang_tg += so_tien_gd
         except Exception:
             pass
             
-    # Tách biệt hiển thị 2 mục Nạp và Chi riêng rẽ
+    # Hiển thị song song hai số liệu thực tế
     col_metric1, col_metric2 = st.columns(2)
     with col_metric1:
-        st.metric(label="📥 TỔNG TIỀN NẠP VÀO (Trong khoảng thời gian trên)", value=f"{tong_nap_khoang_tg:,.0f} VNĐ")
+        st.metric(label="📥 TỔNG TIỀN NẠP VÀO THỰC TẾ (Thu nhập/Lương/...)", value=f"{tong_nap_khoang_tg:,.0f} VNĐ")
     with col_metric2:
-        st.metric(label="💸 TỔNG TIỀN CHI TIÊU / CHUYỂN ĐI (Trong khoảng thời gian trên)", value=f"{tong_chi_khoang_tg:,.0f} VNĐ")
+        st.metric(label="💸 TỔNG TIỀN CHI TIÊU THỰC TẾ (Ăn uống/Mua sắm/...)", value=f"{tong_chi_khoang_tg:,.0f} VNĐ")
         
     st.markdown("---")
     
@@ -413,7 +418,7 @@ elif menu == "Thêm ví & Nạp tiền":
                 recalculate_balances()
                 if luu_du_lieu(): st.rerun()
 
-# --- CHỨC NĂNG: LỊCH SỬ GIAO DỊCH (ĐÃ NÂNG CẤP HIỂN THỊ SỐ DƯ & ẢNH) ---
+# --- CHỨC NĂNG: LỊCH SỬ GIAO DỊCH ---
 elif menu == "Lịch sử giao dịch":
     st.header("📊 Nhật Ký Biến Động Số Dư")
     st.subheader("🛠️ Khu Vực Chỉnh Sửa / Xóa Giao Dịch Lỗi")
@@ -478,7 +483,6 @@ elif menu == "Lịch sử giao dịch":
     if not lich_su_loc:
         st.info("Chưa có giao dịch nào thỏa mãn bộ lọc.")
     else:
-        # THAY THẾ TOÀN BỘ VÒNG LẶP NÚT BẤM CŨ THÀNH CONTAINER HIỂN THỊ CHI TIẾT SỐ DƯ VÀ ẢNH
         for idx_goc, item in lich_su_loc:
             sign = "+" if item.get("loai") == "Nạp tiền" else "-"
             sd_luc_do = item.get("so_du_luc_do", 0)
@@ -490,7 +494,7 @@ elif menu == "Lịch sử giao dịch":
                     st.markdown(f"💰 **Số tiền:** `{sign}{item.get('so_tien',0):,.0f} VNĐ` ({item.get('loai')}) | 🧾 **Số dư lúc đó:** `{sd_luc_do:,.0f} VNĐ`")
                     st.markdown(f"📝 **Mô tả:** {item.get('mo_ta')}")
                     
-                    # KIỂM TRA VÀ VẼ ẢNH RA MÀN HÌNH NHẬT KÝ
+                    # HIỂN THỊ ẢNH MINH CHỨNG
                     duong_dan_anh = item.get("anh", "")
                     if duong_dan_anh:
                         if os.path.exists(duong_dan_anh):
