@@ -202,7 +202,6 @@ st.title(" 💸 Hệ Thống Quản Lý Chi Tiêu Đa Nền Tảng")
 if not st.session_state.trang_thai_cloud:
     st.error("🚨 CẢNH BÁO: Mất kết nối tới dữ liệu đám mây Google Sheets! Tất cả tính năng thêm/sửa/xóa đã tạm thời bị KHÓA để bảo vệ an toàn dữ liệu. Vui lòng vào mục 'Cấu hình Hệ thống' bấm Tải lại hoặc F5.")
 
-# Bổ sung tính năng Chuyển tiền vào danh sách menu
 menu = st.sidebar.radio(
     "Chức năng hệ thống", 
     ["Xem số dư các ví", "Ghi nhận khoản chi", "Chuyển tiền giữa các ví", "Thêm ví & Nạp tiền", "Lịch sử giao dịch", "Cấu hình Hệ thống"]
@@ -211,8 +210,43 @@ menu = st.sidebar.radio(
 # --- CHỨC NĂNG: XEM SỐ DƯ TẤT CẢ CÁC VÍ ---
 if menu == "Xem số dư các ví":
     st.header("📊 Bảng Kê Số Dư Tài Khoản")
+    
+    # TÍNH NĂNG MỚI: LỰA CHỌN KHOẢNG THỜI GIAN ĐỂ THỐNG KÊ CHI TIÊU/NẠP VÀO
+    st.markdown("### 🔍 Lọc thống kê thu chi theo khoảng thời gian")
+    col_d1, col_d2 = st.columns(2)
+    with col_d1:
+        ngay_dau = st.date_input("Từ ngày:", value=datetime.now(MUI_GIO_VN).date() - timedelta(days=30), key="view_ngay_dau")
+    with col_d2:
+        ngay_cuoi = st.date_input("Đến ngày:", value=datetime.now(MUI_GIO_VN).date(), key="view_ngay_cuoi")
+        
+    tong_nap_khoang_tg = 0.0
+    tong_chi_khoang_tg = 0.0
+    
+    for item in lich_su:
+        try:
+            tg_dong = chuan_hoa_thoi_gian(item.get("thoi_gian", "")).split(" ")[0]
+            ngay_gd = datetime.strptime(tg_dong, "%Y-%m-%d").date()
+            if ngay_dau <= ngay_gd <= ngay_cuoi:
+                loai_gd = item.get("loai", "")
+                so_tien_gd = float(item.get("so_tien", 0))
+                if loai_gd == "Nạp tiền":
+                    tong_nap_khoang_tg += so_tien_gd
+                elif loai_gd in ["Chi tiêu", "Chuyển đi"]:
+                    tong_chi_khoang_tg += so_tien_gd
+        except Exception:
+            pass
+            
+    # Tách biệt hiển thị 2 mục Nạp và Chi riêng rẽ
+    col_metric1, col_metric2 = st.columns(2)
+    with col_metric1:
+        st.metric(label="📥 TỔNG TIỀN NẠP VÀO (Trong khoảng thời gian trên)", value=f"{tong_nap_khoang_tg:,.0f} VNĐ")
+    with col_metric2:
+        st.metric(label="💸 TỔNG TIỀN CHI TIÊU / CHUYỂN ĐI (Trong khoảng thời gian trên)", value=f"{tong_chi_khoang_tg:,.0f} VNĐ")
+        
+    st.markdown("---")
+    
     tong_tai_san = sum(sum(cvn.values()) for cvn in vi_tien.values())
-    st.metric(label="💰 TỔNG TÀI SẢN (Tất cả các ví cộng lại)", value=f"{tong_tai_san:,.0f} VNĐ")
+    st.metric(label="💰 TỔNG TÀI SẢN HIỆN TẠI (Tất cả các ví cộng lại)", value=f"{tong_tai_san:,.0f} VNĐ")
     st.markdown("---")
     
     for vl, cvn in vi_tien.items():
@@ -258,7 +292,7 @@ elif menu == "Ghi nhận khoản chi":
                 st.success(f"🎉 Đã ghi nhận thành công khoản chi cho: '{mo_ta}'. Đã đồng bộ lên Cloud!")
                 st.rerun()
 
-# --- CHỨC NĂNG MỚI: CHUYỂN TIỀN GIỮA CÁC VÍ (MỚI THÊM) ---
+# --- CHỨC NĂNG: CHUYỂN TIỀN GIỮA CÁC VÍ ---
 elif menu == "Chuyển tiền giữa các ví":
     st.header("🔄 Chuyển Tiền Qua Lại Giữa Các Ví Nội Bộ")
     
@@ -284,7 +318,6 @@ elif menu == "Chuyển tiền giữa các ví":
     with col_num:
         so_tien_chuyen = st.number_input("Số tiền muốn chuyển (VNĐ):", min_value=0, step=1000, value=0)
         
-    # Nút bấm tích hợp Poka-yoke kiểm tra điều kiện an toàn dữ liệu
     if st.button("🚀 Thực Hiện Lệnh Chuyển Tiền", type="primary", use_container_width=True, disabled=not st.session_state.trang_thai_cloud):
         if so_tien_chuyen <= 0:
             st.error("Vui lòng điền số tiền cần chuyển lớn hơn 0 VNĐ!")
@@ -295,10 +328,9 @@ elif menu == "Chuyển tiền giữa các ví":
         else:
             thoi_gian_gd = datetime.now(MUI_GIO_VN).strftime("%Y-%m-%d %H:%M:%S")
             
-            # 1. Tạo dòng giao dịch Trừ tiền tại Ví Nguồn
             st.session_state.data["lich_su"].insert(0, {
                 "thoi_gian": thoi_gian_gd,
-                "loai": "Chuyển đi", # Thuộc nhóm trừ tiền trong hàm recalculate_balances
+                "loai": "Chuyển đi",
                 "vi_to": vi_to_nguon,
                 "vi_nho": vi_nho_nguon,
                 "so_tien": so_tien_chuyen,
@@ -306,10 +338,9 @@ elif menu == "Chuyển tiền giữa các ví":
                 "anh": ""
             })
             
-            # 2. Tạo dòng giao dịch Cộng tiền tại Ví Đích
             st.session_state.data["lich_su"].insert(0, {
                 "thoi_gian": thoi_gian_gd,
-                "loai": "Nạp tiền", # Thuộc nhóm cộng tiền trong hàm recalculate_balances
+                "loai": "Nạp tiền",
                 "vi_to": vi_to_dich,
                 "vi_nho": vi_nho_dich,
                 "so_tien": so_tien_chuyen,
@@ -382,7 +413,7 @@ elif menu == "Thêm ví & Nạp tiền":
                 recalculate_balances()
                 if luu_du_lieu(): st.rerun()
 
-# --- CHỨC NĂNG: LỊCH SỬ GIAO DỊCH ---
+# --- CHỨC NĂNG: LỊCH SỬ GIAO DỊCH (ĐÃ NÂNG CẤP HIỂN THỊ SỐ DƯ & ẢNH) ---
 elif menu == "Lịch sử giao dịch":
     st.header("📊 Nhật Ký Biến Động Số Dư")
     st.subheader("🛠️ Khu Vực Chỉnh Sửa / Xóa Giao Dịch Lỗi")
@@ -426,7 +457,7 @@ elif menu == "Lịch sử giao dịch":
                 xac_nhan_xoa_dialog(idx_sua, item_sua)
 
     st.markdown("---")
-    st.subheader("📋 Dòng lịch sử giao dịch chi tiết (Chạm vào dòng để Sửa/Xóa)")
+    st.subheader("📋 Dòng lịch sử giao dịch chi tiết")
     
     col_f1, col_f2, col_f3, col_f4 = st.columns(4)
     with col_f1: ngay_bat_dau = st.date_input("Từ ngày:", value=datetime.now(MUI_GIO_VN).date() - timedelta(days=30))
@@ -439,20 +470,37 @@ elif menu == "Lịch sử giao dịch":
         if (vi_to_loc == "Tất cả" or item.get("vi_to") == vi_to_loc) and (vi_nho_loc == "Tất cả" or item.get("vi_nho") == vi_nho_loc):
             try:
                 ngay_gd = datetime.strptime(chuan_hoa_thoi_gian(item.get("thoi_gian", "")).split(" ")[0], "%Y-%m-%d").date()
-                if ngay_bat_dau <= ngay_gd <= ngay_ket_thuc: lich_su_loc.append((idx_goc, item))
-            except Exception: lich_su_loc.append((idx_goc, item))
+                if ngay_bat_dau <= ngay_gd <= ngay_ket_thuc: 
+                    lich_su_loc.append((idx_goc, item))
+            except Exception: 
+                lich_su_loc.append((idx_goc, item))
                     
     if not lich_su_loc:
         st.info("Chưa có giao dịch nào thỏa mãn bộ lọc.")
     else:
+        # THAY THẾ TOÀN BỘ VÒNG LẶP NÚT BẤM CŨ THÀNH CONTAINER HIỂN THỊ CHI TIẾT SỐ DƯ VÀ ẢNH
         for idx_goc, item in lich_su_loc:
-            # Tối ưu hiển thị dấu cộng trừ theo loại giao dịch
             sign = "+" if item.get("loai") == "Nạp tiền" else "-"
-            label_dong = f"⏱️ {chuan_hoa_thoi_gian(item.get('thoi_gian'))} | {item.get('vi_to')} ➔ {item.get('vi_nho')} | {sign}{item.get('so_tien',0):,.0f}đ | Loại: {item.get('loai')} | {item.get('mo_ta')}"
+            sd_luc_do = item.get("so_du_luc_do", 0)
             
-            if st.button(label_dong, key=f"btn_row_{idx_goc}", use_container_width=True):
-                st.session_state.index_can_sua = idx_goc
-                st.rerun()
+            with st.container(border=True):
+                col_info, col_btn = st.columns([6, 1])
+                with col_info:
+                    st.markdown(f"⏱️ **{chuan_hoa_thoi_gian(item.get('thoi_gian'))}** | **{item.get('vi_to')}** ➔ **{item.get('vi_nho')}**")
+                    st.markdown(f"💰 **Số tiền:** `{sign}{item.get('so_tien',0):,.0f} VNĐ` ({item.get('loai')}) | 🧾 **Số dư lúc đó:** `{sd_luc_do:,.0f} VNĐ`")
+                    st.markdown(f"📝 **Mô tả:** {item.get('mo_ta')}")
+                    
+                    # KIỂM TRA VÀ VẼ ẢNH RA MÀN HÌNH NHẬT KÝ
+                    duong_dan_anh = item.get("anh", "")
+                    if duong_dan_anh:
+                        if os.path.exists(duong_dan_anh):
+                            st.image(duong_dan_anh, caption="📸 Ảnh minh chứng đính kèm", width=300)
+                        elif str(duong_dan_anh).startswith("http"):
+                            st.image(duong_dan_anh, caption="📸 Ảnh minh chứng (Đám mây)", width=300)
+                with col_btn:
+                    if st.button("✏️ Sửa/Xóa", key=f"btn_row_{idx_goc}", use_container_width=True):
+                        st.session_state.index_can_sua = idx_goc
+                        st.rerun()
 
 # --- CHỨC NĂNG: CẤU HÌNH HỆ THỐNG & ĐỒNG BỘ ---
 elif menu == "Cấu hình Hệ thống":
