@@ -3,6 +3,7 @@ import json
 import os
 import requests
 import time
+import io  # Thêm thư viện io để fix lỗi nhận diện ảnh
 from datetime import datetime, timedelta, timezone
 from PIL import Image, ImageOps
 
@@ -29,12 +30,15 @@ def chuan_hoa_thoi_gian(chuoi_tg):
         chuoi_str = chuoi_str.replace("T", " ").split(".")[0].replace("Z", "")
     return chuoi_str
 
-# --- HÀM XỬ LÝ VÀ TỐI ƯU ẢNH ---
+# --- HÀM XỬ LÝ VÀ TỐI ƯU ẢNH (ĐÃ FIX LỖI CANNOT IDENTIFY) ---
 def xu_ly_va_luu_anh(file_anh, loai_gd):
     if file_anh is None:
         return ""
     try:
-        img = Image.open(file_anh)
+        # Đọc dữ liệu dưới dạng BytesIO để tránh lỗi con trỏ hoặc định dạng của Streamlit
+        file_bytes = file_anh.getvalue()
+        img = Image.open(io.BytesIO(file_bytes))
+        
         img = ImageOps.exif_transpose(img)
         img.thumbnail((1200, 1200))
         thoi_gian_chuoi = datetime.now(MUI_GIO_VN).strftime("%Y%m%d_%H%M%S")
@@ -232,16 +236,13 @@ if menu == "Xem số dư các ví":
                 so_tien_gd = float(item.get("so_tien", 0))
                 mo_ta_gd = item.get("mo_ta", "")
                 
-                # CHỈ TÍNH TIỀN NẠP THỰC TẾ (Loại trừ các dòng có chữ [NHẬN VÍ] từ chuyển tiền nội bộ)
                 if loai_gd == "Nạp tiền" and "[NHẬN VÍ]" not in mo_ta_gd:
                     tong_nap_khoang_tg += so_tien_gd
-                # CHỈ TÍNH TIỀN TIÊU THỰC TẾ THỰC SỰ MẤT ĐI (Loại trừ loại "Chuyển đi")
                 elif loai_gd == "Chi tiêu":
                     tong_chi_khoang_tg += so_tien_gd
         except Exception:
             pass
             
-    # Hiển thị song song hai số liệu thực tế
     col_metric1, col_metric2 = st.columns(2)
     with col_metric1:
         st.metric(label="📥 TỔNG TIỀN NẠP VÀO THỰC TẾ (Thu nhập/Lương/...)", value=f"{tong_nap_khoang_tg:,.0f} VNĐ")
